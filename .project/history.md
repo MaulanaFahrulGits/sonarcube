@@ -62,9 +62,11 @@ in a git-ignored `.env` (template: `.env.example`).
   `.env` and refuses to start without admin password, URL and token.
 - `scan.sh`: strips `\r` when loading `.env`. A `.env` saved with Windows line endings made the scanner fail
   with `Malformed URL`; found during the first real run.
-- **History rewritten before the first push.** The original local commit held the company host and work email.
-  It was replaced by one clean root commit (author = GitHub noreply address, repo-local `user.email`); the old
-  one is kept only on the local branch `backup/pre-sanitize`, which is never pushed.
+- **History rewritten, remote must be force-pushed.** The original commit (host, work email, research notes)
+  had already reached the public `origin/main`. It was replaced locally by one clean root commit (author =
+  GitHub noreply address, repo-local `user.email`). The old commit is kept only on the local branch
+  `backup/pre-sanitize`, which must never be pushed. Publishing needs
+  `git push --force-with-lease=main:<old-sha> origin main`; GitHub may keep serving the old SHA for a while.
 - `devbox.json`: scripts `jenkins-up`, `jenkins-logs`, `jenkins-down`.
 - `.gitignore`: `!.project/` (the Eclipse `.project` rule would have ignored this folder), `config.env`,
   `*.local.env`. A token file named `config.env` was found untracked and not ignored: renamed to `.env`.
