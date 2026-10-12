@@ -60,6 +60,11 @@ in a git-ignored `.env` (template: `.env.example`).
 - `jenkins/`: new `plugins.txt` and `casc.yaml` (admin user, `sonar-token` credential, `SONAR_URL`, seeded
   `sonar-pipeline` job); Dockerfile no longer installs the docker CLI; compose binds `127.0.0.1:8080`, reads
   `.env` and refuses to start without admin password, URL and token.
+- `scan.sh`: strips `\r` when loading `.env`. A `.env` saved with Windows line endings made the scanner fail
+  with `Malformed URL`; found during the first real run.
+- **History rewritten before the first push.** The original local commit held the company host and work email.
+  It was replaced by one clean root commit (author = GitHub noreply address, repo-local `user.email`); the old
+  one is kept only on the local branch `backup/pre-sanitize`, which is never pushed.
 - `devbox.json`: scripts `jenkins-up`, `jenkins-logs`, `jenkins-down`.
 - `.gitignore`: `!.project/` (the Eclipse `.project` rule would have ignored this folder), `config.env`,
   `*.local.env`. A token file named `config.env` was found untracked and not ignored: renamed to `.env`.
@@ -78,17 +83,19 @@ in a git-ignored `.env` (template: `.env.example`).
 | Check | Status | How |
 |---|---|---|
 | `scan.sh` fails fast on missing URL / key / token | verified 2026-10-12 | ran with cleared env |
-| `scan.sh` hands over to `devbox run` without a JDK | verified with a stub `devbox` | no real devbox run (Nix not installed on that host) |
-| Hook blocks a commit when settings are missing | verified | ran hook with code file staged |
-| Hook skips docs-only commits | verified | ran hook with nothing code-related staged |
+| `scan.sh` hands over to `devbox run` without a JDK | verified with a stub `devbox` | no real devbox run |
+| `scan.sh` tolerates CRLF `.env` | verified | the real failure it fixes was reproduced first |
+| Hook passes on clean code (lint, 3 tests, Sonar gate PASSED) | **verified** 2026-10-12 | real commit through the hook, temporary Temurin JDK 21 |
+| Hook rejects bad code | **verified** | `demo/bad-examples/LegacyUtil.java.txt` rejected at lint (2 violations) |
+| Hook skips docs-only commits | verified | |
 | `casc.yaml`, `docker-compose.yml`, `devbox.json` parse | verified | YAML / JSON parser |
-| Hook passes on a clean tree (lint + tests + Sonar gate) | **pending** | needs `.env` with a token and a JDK via devbox |
-| `devbox shell` / `devbox run build` | **pending** | needs Nix on the dev machine |
-| Jenkins image build, boot, JCasC job, full pipeline | **pending** | needs Docker access for the dev user |
+| `devbox shell` / `devbox run build` | **pending** | Nix not installed in this WSL distro; its installer needs `sudo` in a terminal |
+| Jenkins image build, boot, JCasC job, full pipeline | **pending** | Docker socket not accessible to the dev user (docker group) |
 
 ## Open items
 
-- Commit `devbox.lock` after the first `devbox shell` (reproducible versions).
+- Install Nix (`devbox shell` once, needs sudo), then commit `devbox.lock` (reproducible versions).
+- Add the dev user to the `docker` group and run `devbox run jenkins-up` to verify the Jenkins image.
 - Pin Jenkins plugin versions in `jenkins/plugins.txt` once the image is known to work.
 - Java package and Maven groupId still contain the company name (`com.altama`).
 - Rotate the admin token used during the research and use a scoped user token for Jenkins.
