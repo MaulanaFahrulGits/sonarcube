@@ -1,0 +1,98 @@
+package com.altama.sonarcube;
+
+import java.io.FileReader;
+import java.io.IOException;
+import java.security.MessageDigest;
+import java.util.Random;
+
+/**
+ * More deliberate smells for the R&D scan. Not meant to be fixed or used.
+ */
+public class LegacyUtil {
+
+    private static final String DB_URL = "jdbc:mysql://10.0.0.5:3306/app"; // hard-coded IP
+    private String dbPassword = "P@ssw0rd!"; // vulnerability: hard-coded credential
+
+    // bug: String compared with ==
+    public boolean isAdmin(String role) {
+        return role == "ADMIN";
+    }
+
+    // vulnerability: weak hash
+    public byte[] hash(String value) throws Exception {
+        return MessageDigest.getInstance("MD5").digest(value.getBytes());
+    }
+
+    // vulnerability: predictable random used for a token
+    public int newToken() {
+        return new Random().nextInt();
+    }
+
+    // bug: reader never closed, smell: exception swallowed
+    public String readFile(String path) {
+        try {
+            FileReader reader = new FileReader(path);
+            return String.valueOf(reader.read());
+        } catch (IOException e) {
+        }
+        return null;
+    }
+
+    // smell: high cognitive complexity, duplicated branches, println
+    public String classify(int a, int b, int c) {
+        if (a > 0) {
+            if (b > 0) {
+                if (c > 0) {
+                    System.out.println("all positive");
+                    return "A";
+                } else if (c < 0) {
+                    System.out.println("c negative");
+                    return "B";
+                }
+            } else if (b < 0) {
+                if (c > 0) {
+                    System.out.println("b negative");
+                    return "C";
+                } else if (c < 0) {
+                    System.out.println("b and c negative");
+                    return "D";
+                }
+            }
+        } else if (a < 0) {
+            if (b > 0) {
+                if (c > 0) {
+                    System.out.println("a negative");
+                    return "E";
+                } else if (c < 0) {
+                    System.out.println("a and c negative");
+                    return "F";
+                }
+            }
+        }
+        return "Z";
+    }
+
+    // smell: duplicate of the method below
+    public int sumOfSquares(int[] values) {
+        int total = 0;
+        for (int i = 0; i < values.length; i++) {
+            total = total + values[i] * values[i];
+        }
+        return total;
+    }
+
+    public int sumOfSquaresCopy(int[] values) {
+        int total = 0;
+        for (int i = 0; i < values.length; i++) {
+            total = total + values[i] * values[i];
+        }
+        return total;
+    }
+
+    // smell: unused private method, TODO, commented-out code
+    private void neverCalled() {
+        // TODO: remove
+        // int x = 10;
+        // System.out.println(x);
+    }
+}

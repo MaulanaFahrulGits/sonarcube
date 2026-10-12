@@ -1,0 +1,35 @@
+package com.altama.sonarcube;
+
+/**
+ * Passes lint and the existing tests, but SonarQube reports two bugs
+ * and nothing covers it, so the quality gate must reject it.
+ * Copy to src/main/java/com/altama/sonarcube/DemoService.java (drop the .txt) to try it.
+ */
+public class DemoService {
+
+    private String password = "admin123"; // smell: hard-coded credential (not always flagged as a vulnerability)
+
+    public int length(String value) {
+        String missing = null;
+        if (value == null) {
+            return missing.length(); // bug: guaranteed null dereference
+        }
+        return value.length();
+    }
+
+    public boolean same(int a) {
+        return a == a; // bug: identical operands
+    }
+
+    public int grade(int score) {
+        int unused = 0; // code smell: unused variable
+        if (score > 90) {
+            return 1;
+        }
+        return 2;
+    }
+
+    public String secret() {
+        return password;
+    }
+}

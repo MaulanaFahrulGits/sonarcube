@@ -1,0 +1,49 @@
+# Jenkins Configuration as Code. Every ${VAR} comes from the container environment (.env via docker-compose.yml).
+jenkins:
+  systemMessage: "SonarQube R&D Jenkins, configured by jenkins/casc.yaml"
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: SONAR_URL
+            value: "${SONAR_URL}"
+          - key: CHAT_WEBHOOK_URL
+            value: "${CHAT_WEBHOOK_URL:-}"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: sonar-token
+              description: "SonarQube analysis token (from .env)"
+              secret: "${SONAR_TOKEN}"
+
+# One generic job. Its script comes from the Jenkinsfile in PIPELINE_REPO_URL; the project to build
+# (REPO_URL, BRANCH, SONAR_PROJECT_KEY, ...) is chosen with "Build with Parameters".
+jobs:
+  - script: |
+      pipelineJob('sonar-pipeline') {
+        description('Checkout, test, lint, SonarQube scan and build for any Maven project')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${PIPELINE_REPO_URL:-https://github.com/MaulanaFahrulGits/sonarcube.git}') }
+                branch('*/${PIPELINE_BRANCH:-main}')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }

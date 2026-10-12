@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Blocks the commit unless lint, unit tests and the SonarQube quality gate all pass.
+# Enabled by `git config core.hooksPath .githooks` (devbox does this automatically).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Docs-only commits don't need a ~1 minute scan.
+if ! git diff --cached --name-only | grep -qE '\.(java|xml|ya?ml|properties)$|^Jenkinsfile$|^scan\.sh$|^\.githooks/'; then
+  echo "pre-commit: no code or build files staged, skipping checks."
+  exit 0
+fi
+
+echo "pre-commit: lint -> unit tests -> SonarQube quality gate"
+if ! ./scan.sh; then
+  echo
+  echo "pre-commit FAILED. Fix the problem reported above, then commit again."
+  echo "(Emergency only: git commit --no-verify. Jenkins will still fail the build.)"
+  exit 1
+fi
+echo "pre-commit: all checks passed."

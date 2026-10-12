@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
+  "packages": ["jdk@21", "git@latest", "curl@latest"],
+  "shell": {
+    "init_hook": [
+      "git config core.hooksPath .githooks || true",
+      "[ -f .env ] || echo 'Missing .env: copy .env.example to .env and put your SONAR_TOKEN in it.'"
+    ],
+    "scripts": {
+      "build": "./mvnw -B verify",
+      "test": "./mvnw -B test",
+      "lint": "./mvnw -B checkstyle:check",
+      "scan": "./scan.sh",
+      "run": "./mvnw -B spring-boot:run",
+      "jenkins-up": "docker compose --env-file .env -f jenkins/docker-compose.yml up -d --build",
+      "jenkins-logs": "docker compose --env-file .env -f jenkins/docker-compose.yml logs -f jenkins",
+      "jenkins-down": "docker compose --env-file .env -f jenkins/docker-compose.yml down"
+    }
+  }
+}

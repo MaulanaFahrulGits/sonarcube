@@ -1,0 +1,16 @@
+# Run from the repo root so the root .env is used for both the checks below and the container:
+#   docker compose --env-file .env -f jenkins/docker-compose.yml up -d --build      (or: devbox run jenkins-up)
+services:
+  jenkins:
+    build: .
+    ports: ["127.0.0.1:8080:8080"] # local R&D only; put a reverse proxy with TLS in front before exposing it
+    env_file: ../.env
+    environment:
+      # fail closed: never boot without an admin password
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?set JENKINS_ADMIN_PASSWORD in .env}
+      SONAR_URL: ${SONAR_URL:?set SONAR_URL in .env}
+      SONAR_TOKEN: ${SONAR_TOKEN:?set SONAR_TOKEN in .env}
+    volumes:
+      - jenkins_home:/var/jenkins_home
+volumes:
+  jenkins_home:

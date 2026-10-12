@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!-- Small ruleset on purpose: real defects and obvious style, nothing that fights Spring's 4-space code. -->
+<module name="Checker">
+  <property name="charset" value="UTF-8"/>
+  <module name="FileTabCharacter"/>
+  <module name="NewlineAtEndOfFile"/>
+  <module name="LineLength">
+    <property name="max" value="120"/>
+    <property name="ignorePattern" value="^package.*|^import.*|https?://"/>
+  </module>
+  <module name="TreeWalker">
+    <module name="AvoidStarImport"/>
+    <module name="UnusedImports"/>
+    <module name="RedundantImport"/>
+    <module name="ModifierOrder"/>
+    <module name="NeedBraces"/>
+    <module name="EmptyBlock">
+      <property name="option" value="text"/>
+    </module>
+    <module name="EmptyCatchBlock"/>
+    <module name="EqualsHashCode"/>
+    <module name="StringLiteralEquality"/>
+    <module name="MissingSwitchDefault"/>
+    <module name="SimplifyBooleanExpression"/>
+    <module name="SimplifyBooleanReturn"/>
+    <module name="TypeName"/>
+    <module name="MethodName"/>
+    <module name="MemberName"/>
+    <module name="ParameterName"/>
+    <module name="LocalVariableName"/>
+    <module name="ConstantName"/>
+  </module>
+</module>
