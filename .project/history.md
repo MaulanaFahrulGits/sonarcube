@@ -48,6 +48,10 @@ in a git-ignored `.env` (template: `.env.example`).
 ## Change log
 
 ### 2026-10-13 - failure reporting, smaller devbox
+- `Jenkinsfile`: bug found on the first real run of the Prerequisites stage: `params.SONAR_TOKEN_INPUT?.trim()`
+  threw `No signature of method: hudson.util.Secret.trim()`, because password parameters are `Secret` objects,
+  not Strings. All checks of that parameter now go through `isSet()` (`toString()` first). The failure hint also
+  says to read the exception when there is no `[FAIL]` line.
 - **Git credentials scoped to this project.** `scripts/git-credential-env` is a git credential helper that reads
   `TOKEN_GIT` (and optional `GIT_USERNAME`) from the git-ignored `.env` and answers only for `github.com`.
   Enabled with repo-local `credential.https://github.com.helper` (devbox `init_hook` does it), so no password

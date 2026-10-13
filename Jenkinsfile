@@ -21,7 +21,7 @@
 def failureHint(String stageName) {
     switch (stageName) {
         case 'Prerequisites':
-            return 'The environment is not ready. Each problem is a [FAIL] line in the Prerequisites output (Java, token, SonarQube, repository).'
+            return 'The environment is not ready. Each problem is a [FAIL] line in the Prerequisites output (Java, token, SonarQube, repository). If there is none, the Jenkinsfile itself threw: read the exception printed after "Also:".'
         case 'Checkout':
             return 'Cannot clone REPO_URL at BRANCH. Check the URL, the branch name, and GIT_CREDENTIALS_ID for a private repo.'
         case 'Test':
@@ -37,6 +37,12 @@ def failureHint(String stageName) {
     }
 }
 
+// True when a parameter or env value is set. Password parameters are hudson.util.Secret objects (no trim()),
+// so always go through toString().
+def isSet(Object value) {
+    return value != null && value.toString().trim().length() > 0
+}
+
 // Runs the Maven wrapper and keeps a copy of its output in .pipeline.log, so a failed build can quote the real error.
 def mvn(String args) {
     sh """#!/bin/bash
@@ -47,7 +53,7 @@ set -o pipefail
 
 // Runs body with SONAR_TOKEN available to sh steps. The shell scripts below also accept SONAR_TOKEN_INPUT.
 def withSonarToken(Closure body) {
-    if (params.SONAR_TOKEN_INPUT?.trim() || env.SONAR_TOKEN?.trim()) {
+    if (isSet(params.SONAR_TOKEN_INPUT) || isSet(env.SONAR_TOKEN)) {
         body()
     } else {
         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) { body() }
@@ -62,7 +68,7 @@ def checkPrerequisites() {
     for (name in params.keySet()) {
         def value = params[name]?.toString() ?: ''
         def secret = ['TOKEN', 'PASSWORD', 'SECRET'].any { name.toUpperCase().contains(it) }
-        def shown = secret ? (value.trim() ? '****** (set, masked)' : '(empty)') : (value ?: '(empty)')
+        def shown = secret ? (isSet(value) ? '****** (set, masked)' : '(empty)') : (value ?: '(empty)')
         echo "${name} = ${shown}"
     }
     echo "SONAR_URL (from Jenkins) = ${env.SONAR_URL ?: '(NOT SET)'}"
@@ -72,9 +78,9 @@ def checkPrerequisites() {
 
     // where the Sonar token comes from (the value is never printed)
     def tokenSource = 'none'
-    if (params.SONAR_TOKEN_INPUT?.trim()) {
+    if (isSet(params.SONAR_TOKEN_INPUT)) {
         tokenSource = 'build parameter SONAR_TOKEN_INPUT'
-    } else if (env.SONAR_TOKEN?.trim()) {
+    } else if (isSet(env.SONAR_TOKEN)) {
         tokenSource = 'global environment variable SONAR_TOKEN'
     } else {
         try {
