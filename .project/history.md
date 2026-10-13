@@ -53,6 +53,10 @@ in a git-ignored `.env` (template: `.env.example`).
   quality gate conditions (metric, actual value, limit) read from `api/qualitygates/project_status`. The stage
   name is also written to the build description. Removed `mailer` from `jenkins/plugins.txt`, `CHAT_WEBHOOK_URL`
   from `jenkins/casc.yaml` and `.env.example`. Not run on a real Jenkins yet.
+- `Jenkinsfile`: first real Jenkins run failed with `release version 21 not supported` (node had an older JDK).
+  Added a Java check at the start of the Test stage (reads `<java.version>` from `pom.xml`, fails with the fix
+  in the message) and a `JDK_HOME` parameter that sets `JAVA_HOME` for the build, so no admin rights are needed.
+  The check script was tested locally with JDK 21, a fake JDK 17 and no Java.
 - `Jenkinsfile`: the Sonar token no longer requires the `sonar-token` credential. It is taken from parameter
   `SONAR_TOKEN_INPUT` (password type), else global env var `SONAR_TOKEN`, else the credential. Added for Jenkins
   users who cannot create credentials. Not run on a real Jenkins yet.

@@ -120,6 +120,8 @@ Checkout (REPO_URL @ BRANCH) -> Test -> Lint -> SonarQube scan + quality gate ->
 | `REPO_URL`, `BRANCH` | what to build |
 | `SONAR_PROJECT_KEY`, `SONAR_PROJECT_NAME` | project in SonarQube (the first scan creates it) |
 | `SCAN_BRANCHES` | branches that are scanned (default `main,master`). Community Build keeps one analysis per project, so other branches run test, lint and build only |
+| `JDK_HOME` | optional: path of a JDK 21 on the Jenkins node (empty = the node's `JAVA_HOME` / `java`). Needs no admin rights |
+| `SONAR_TOKEN_INPUT` | optional: Sonar token typed per build (see token sources below) |
 | `GIT_CREDENTIALS_ID` | optional: Jenkins credential id for a private repo |
 
 ```bash
@@ -159,4 +161,5 @@ the scan waits for the gate by polling. Needs Docker with your user in the `dock
 | `bad interpreter` / `\r` errors on Windows | the repo forces LF for `*.sh` and hooks; re-clone or `git rm --cached -r . && git reset --hard` |
 | Hook silently does nothing | the hook files lost their executable bit: `chmod +x .githooks/pre-commit scan.sh mvnw` and `git config core.fileMode true` |
 | Jenkins fails at *SonarQube scan* with `SONAR_URL is not set` | start it with `devbox run jenkins-up` (reads `.env`) |
+| Jenkins: `release version 21 not supported` / `no usable Java 21` | the node's JDK is older than `java.version` in `pom.xml`. Install JDK 21, then set `JAVA_HOME` in Manage Jenkins > System > Global properties, or pass its path in the `JDK_HOME` parameter |
 | Jenkins container exits at boot | `JENKINS_ADMIN_PASSWORD`, `SONAR_URL` or `SONAR_TOKEN` missing in `.env` (compose refuses to start) |

@@ -23,7 +23,7 @@ def failureHint(String stageName) {
         case 'Checkout':
             return 'Cannot clone REPO_URL at BRANCH. Check the URL, the branch name, and GIT_CREDENTIALS_ID for a private repo.'
         case 'Test':
-            return 'A unit test failed or the code does not compile. Surefire lists each failing test above (search the log for FAILURE or ERROR).'
+            return 'A unit test failed, the code does not compile, or the node has a JDK older than the project needs ("release version N not supported" or the Java check above). Surefire lists each failing test (search the log for FAILURE or ERROR).'
         case 'Lint':
             return 'Checkstyle found violations. Each one is listed above as file:line: message. Fix them in the code.'
         case 'SonarQube scan':
@@ -88,12 +88,15 @@ pipeline {
                description: 'Only these branches are scanned: Community Build keeps one analysis per project, so other branches would overwrite it')
         password(name: 'SONAR_TOKEN_INPUT', defaultValue: '',
                  description: 'SonarQube token. Only if you cannot add the sonar-token credential or a global SONAR_TOKEN (empty = use those)')
+        string(name: 'JDK_HOME', defaultValue: '',
+               description: 'Path of a JDK on the Jenkins node, e.g. /usr/lib/jvm/java-21-openjdk-amd64 (empty = the node JAVA_HOME or java on PATH)')
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: '',
                description: 'Jenkins credential id for a private repository (empty = anonymous)')
     }
     environment {
         SONAR_PROJECT_KEY  = "${params.SONAR_PROJECT_KEY}"
         SONAR_PROJECT_NAME = "${params.SONAR_PROJECT_NAME}"
+        JAVA_HOME          = "${params.JDK_HOME?.trim() ? params.JDK_HOME.trim() : (env.JAVA_HOME ?: '')}"
     }
     stages {
         stage('Checkout') {
@@ -114,6 +117,20 @@ pipeline {
         }
         stage('Test') {
             steps {
+                // fail early and clearly when the node's JDK is older than the project's <java.version>
+                sh '''#!/bin/bash
+set -eu
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+need=$(grep -o '<java.version>[0-9]*' pom.xml | head -1 | grep -o '[0-9]*$' || true)
+need=${need:-21}
+have=$("$JAVA" -version 2>&1 | grep -o 'version "[0-9]*' | head -1 | grep -o '[0-9]*$' || true)
+echo "Java on this node: ${have:-not found} (JAVA_HOME=${JAVA_HOME:-not set}); the project needs Java $need"
+if [ -z "$have" ] || [ "$have" -lt "$need" ]; then
+  echo "ERROR: this node has no usable Java $need. Install JDK $need and then either set JAVA_HOME in" >&2
+  echo "       Manage Jenkins > System > Global properties, or give its path in the JDK_HOME build parameter." >&2
+  exit 1
+fi
+'''
                 // lint is bound to Maven's validate phase, so skip it here; it has its own stage below
                 sh './mvnw -B -Dcheckstyle.skip=true test jacoco:report'
             }
