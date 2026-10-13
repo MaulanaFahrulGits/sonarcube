@@ -129,8 +129,14 @@ devbox run jenkins-up    # = docker compose --env-file .env -f jenkins/docker-co
 ```
 
 Jenkins plugins needed: **Pipeline**, **Git**, **Credentials Binding**. Nothing else (no SonarQube, JUnit or
-Timestamper plugin). Also create the Secret text credential `sonar-token` and the global env var `SONAR_URL`
-(the `jenkins/` image does both for you).
+Timestamper plugin). Also set the global env var `SONAR_URL` and give the pipeline a Sonar token in any one of
+these ways (first one found wins; the `jenkins/` image creates the credential for you):
+
+| Token source | Where | Needs admin? |
+|---|---|---|
+| Build parameter `SONAR_TOKEN_INPUT` | typed in *Build with Parameters*, password type (masked) | no |
+| Global env var `SONAR_TOKEN` | Manage Jenkins > System > Global properties > Environment variables | yes, and it is stored in plain text |
+| Credential `sonar-token` (Secret text) | Manage Jenkins > Credentials | yes, recommended |
 
 When a build fails, the end of the console log shows the failed stage, the reason and, for the Sonar stage,
 the red quality gate conditions (metric, actual value, limit). The same stage name is the build description.

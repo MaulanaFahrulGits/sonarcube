@@ -6,7 +6,11 @@
 //
 // Plugins needed: Pipeline, Git, Credentials Binding. Nothing else (no JUnit, Timestamper or SonarQube plugin);
 // unit tests are the Spring Boot tests run by Maven Surefire, and their result is the console log.
-// Provided by the Jenkins image (jenkins/casc.yaml): env SONAR_URL, credential "sonar-token".
+// Needed from Jenkins: env SONAR_URL (Manage Jenkins > System > Global properties) and the Sonar token.
+// The token is read from the first of these that is set:
+//   1. build parameter SONAR_TOKEN_INPUT   (password type, masked; needs no admin rights)
+//   2. global env var SONAR_TOKEN          (Manage Jenkins > System > Global properties)
+//   3. credential "sonar-token"            (Secret text; what jenkins/casc.yaml creates)
 // No Docker agent and no SonarQube webhook: the scan polls for the gate (sonar.qualitygate.wait),
 // so it also works when SonarQube cannot reach this Jenkins.
 //
@@ -31,11 +35,21 @@ def failureHint(String stageName) {
     }
 }
 
+// Runs body with SONAR_TOKEN available to sh steps. The shell scripts below also accept SONAR_TOKEN_INPUT.
+def withSonarToken(Closure body) {
+    if (params.SONAR_TOKEN_INPUT?.trim() || env.SONAR_TOKEN?.trim()) {
+        body()
+    } else {
+        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) { body() }
+    }
+}
+
 // Asks SonarQube which gate conditions are red, so the log says why the gate failed.
 def printSonarGateFailures() {
     try {
-        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+        withSonarToken {
             def body = sh(returnStdout: true, script: '''#!/bin/bash
+SONAR_TOKEN="${SONAR_TOKEN_INPUT:-${SONAR_TOKEN:-}}"
 curl -fsS -u "$SONAR_TOKEN:" "$SONAR_URL/api/qualitygates/project_status?projectKey=$SONAR_PROJECT_KEY"
 ''')
             def status = new groovy.json.JsonSlurperClassic().parseText(body).projectStatus
@@ -72,6 +86,8 @@ pipeline {
                description: 'Display name in SonarQube (empty = same as the key)')
         string(name: 'SCAN_BRANCHES', defaultValue: 'main,master',
                description: 'Only these branches are scanned: Community Build keeps one analysis per project, so other branches would overwrite it')
+        password(name: 'SONAR_TOKEN_INPUT', defaultValue: '',
+                 description: 'SonarQube token. Only if you cannot add the sonar-token credential or a global SONAR_TOKEN (empty = use those)')
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: '',
                description: 'Jenkins credential id for a private repository (empty = anonymous)')
     }
@@ -115,10 +131,14 @@ pipeline {
             }
             steps {
                 // the scanner reads the token from env SONAR_TOKEN, so it never appears on a command line
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    sh '''#!/bin/bash
+                script {
+                    withSonarToken {
+                        sh '''#!/bin/bash
 set -eu
-: "${SONAR_URL:?SONAR_URL is not set on this Jenkins (see jenkins/casc.yaml)}"
+: "${SONAR_URL:?SONAR_URL is not set on this Jenkins (Manage Jenkins > System > Global properties)}"
+SONAR_TOKEN="${SONAR_TOKEN_INPUT:-${SONAR_TOKEN:-}}"
+: "${SONAR_TOKEN:?no Sonar token: set parameter SONAR_TOKEN_INPUT, global env SONAR_TOKEN or credential sonar-token}"
+export SONAR_TOKEN
 extra=()
 if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PROJECT_NAME"); fi
 ./mvnw -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
@@ -127,6 +147,7 @@ if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PR
   ${extra[@]+"${extra[@]}"} \
   -Dsonar.qualitygate.wait=true
 '''
+                    }
                 }
             }
             post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }

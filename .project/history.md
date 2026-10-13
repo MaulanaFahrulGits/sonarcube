@@ -53,6 +53,9 @@ in a git-ignored `.env` (template: `.env.example`).
   quality gate conditions (metric, actual value, limit) read from `api/qualitygates/project_status`. The stage
   name is also written to the build description. Removed `mailer` from `jenkins/plugins.txt`, `CHAT_WEBHOOK_URL`
   from `jenkins/casc.yaml` and `.env.example`. Not run on a real Jenkins yet.
+- `Jenkinsfile`: the Sonar token no longer requires the `sonar-token` credential. It is taken from parameter
+  `SONAR_TOKEN_INPUT` (password type), else global env var `SONAR_TOKEN`, else the credential. Added for Jenkins
+  users who cannot create credentials. Not run on a real Jenkins yet.
 - `Jenkinsfile`: removed `timestamps()` and the `junit` publisher, so only Pipeline, Git and Credentials
   Binding are required. Unit tests are unchanged: Spring Boot tests (`spring-boot-starter-test`, JUnit 5) run by
   Maven Surefire in the Test stage; failures show in the console log instead of a Jenkins test report. Removed
