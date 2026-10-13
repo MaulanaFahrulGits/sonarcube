@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
-  "packages": ["jdk@21", "git@latest", "curl@latest"],
+  "packages": ["jdk@21"],
   "shell": {
     "init_hook": [
       "git config core.hooksPath .githooks || true",

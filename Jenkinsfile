@@ -4,14 +4,61 @@
 //   REPO_URL, BRANCH, SONAR_PROJECT_KEY, SONAR_PROJECT_NAME.
 // The target project's pom needs the Checkstyle and JaCoCo plugins configured like this repo's pom.xml.
 //
+// Plugins needed: Pipeline, Git, Credentials Binding. Nothing else (no JUnit, Timestamper or SonarQube plugin);
+// unit tests are the Spring Boot tests run by Maven Surefire, and their result is the console log.
 // Provided by the Jenkins image (jenkins/casc.yaml): env SONAR_URL, credential "sonar-token".
 // No Docker agent and no SonarQube webhook: the scan polls for the gate (sonar.qualitygate.wait),
 // so it also works when SonarQube cannot reach this Jenkins.
+//
+// On failure there is no mail or chat message. The end of the console log says which stage failed and why,
+// including the red quality gate conditions, and the build list shows the same in the build description.
+
+// One-line explanation per stage, printed at the end of a failed build.
+def failureHint(String stageName) {
+    switch (stageName) {
+        case 'Checkout':
+            return 'Cannot clone REPO_URL at BRANCH. Check the URL, the branch name, and GIT_CREDENTIALS_ID for a private repo.'
+        case 'Test':
+            return 'A unit test failed or the code does not compile. Surefire lists each failing test above (search the log for FAILURE or ERROR).'
+        case 'Lint':
+            return 'Checkstyle found violations. Each one is listed above as file:line: message. Fix them in the code.'
+        case 'SonarQube scan':
+            return 'The scanner failed or the quality gate is red. The failed gate conditions are listed below when available.'
+        case 'Build':
+            return 'Packaging failed. See the Maven error above.'
+        default:
+            return 'See the console log above for the first error.'
+    }
+}
+
+// Asks SonarQube which gate conditions are red, so the log says why the gate failed.
+def printSonarGateFailures() {
+    try {
+        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+            def body = sh(returnStdout: true, script: '''#!/bin/bash
+curl -fsS -u "$SONAR_TOKEN:" "$SONAR_URL/api/qualitygates/project_status?projectKey=$SONAR_PROJECT_KEY"
+''')
+            def status = new groovy.json.JsonSlurperClassic().parseText(body).projectStatus
+            if (status.status != 'ERROR') {
+                echo "Quality gate status is ${status.status}, so the scanner itself failed: read the Maven error above (URL, token, permissions)."
+                return
+            }
+            echo 'Quality gate FAILED. Red conditions:'
+            status.conditions.findAll { it.status == 'ERROR' }.each { c ->
+                def op = c.comparator == 'GT' ? '>' : (c.comparator == 'LT' ? '<' : c.comparator)
+                echo " - ${c.metricKey}: actual ${c.actualValue}, fails when ${op} ${c.errorThreshold}"
+            }
+            echo "Details: ${env.SONAR_URL}/dashboard?id=${env.SONAR_PROJECT_KEY}"
+        }
+    } catch (Exception e) {
+        echo "Could not read the gate details from SonarQube: ${e.message}"
+    }
+}
+
 pipeline {
     agent any
     options {
         skipDefaultCheckout(true) // the job's SCM holds only this file; the project is checked out below
-        timestamps()
         disableConcurrentBuilds()
         timeout(time: 30, unit: 'MINUTES')
     }
@@ -27,8 +74,6 @@ pipeline {
                description: 'Only these branches are scanned: Community Build keeps one analysis per project, so other branches would overwrite it')
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: '',
                description: 'Jenkins credential id for a private repository (empty = anonymous)')
-        string(name: 'NOTIFY_EMAIL', defaultValue: '',
-               description: 'Mail this address on failure (needs SMTP in Manage Jenkins; empty = no mail)')
     }
     environment {
         SONAR_PROJECT_KEY  = "${params.SONAR_PROJECT_KEY}"
@@ -49,18 +94,18 @@ pipeline {
                     extensions: [[$class: 'CleanBeforeCheckout']]
                 ])
             }
+            post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         stage('Test') {
             steps {
                 // lint is bound to Maven's validate phase, so skip it here; it has its own stage below
                 sh './mvnw -B -Dcheckstyle.skip=true test jacoco:report'
             }
-            post {
-                always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml' }
-            }
+            post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         stage('Lint') {
             steps { sh './mvnw -B checkstyle:check' }
+            post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         stage('SonarQube scan') {
             when {
@@ -84,35 +129,33 @@ if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PR
 '''
                 }
             }
+            post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         stage('Build') {
             steps {
                 sh './mvnw -B -DskipTests -Dcheckstyle.skip=true package'
                 archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, allowEmptyArchive: true
             }
+            post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         // stage('Deploy') { gcloud run deploy ... }  <- only reached when the gate is green
     }
     post {
         failure {
             script {
-                if (params.NOTIFY_EMAIL?.trim()) {
-                    try {
-                        mail to: params.NOTIFY_EMAIL,
-                             subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                             body: "Build or quality gate failed.\n${env.BUILD_URL}"
-                    } catch (Exception e) {
-                        echo "Mail not sent (is SMTP configured?): ${e.message}"
-                    }
+                def stageName = env.FAILED_STAGE ?: 'unknown'
+                currentBuild.description = "FAILED at ${stageName}"
+                echo '=================== WHY THIS BUILD FAILED ==================='
+                echo "Stage : ${stageName}"
+                echo "Reason: ${failureHint(stageName)}"
+                if (stageName == 'SonarQube scan') {
+                    printSonarGateFailures()
                 }
-                if (env.CHAT_WEBHOOK_URL?.trim()) { // Slack and Google Chat both accept {"text": ...}
-                    // shebang keeps the shell from echoing the webhook URL into the log
-                    sh '''#!/bin/bash
-curl -s -X POST -H 'Content-Type: application/json' \
-  -d "{\\"text\\":\\"FAILED $JOB_NAME #$BUILD_NUMBER $BUILD_URL\\"}" "$CHAT_WEBHOOK_URL" || true
-'''
-                }
+                echo '============================================================='
             }
+        }
+        aborted {
+            echo 'Build was aborted: manual stop or the 30 minute timeout was reached.'
         }
     }
 }

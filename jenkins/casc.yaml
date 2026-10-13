@@ -15,8 +15,6 @@ jenkins:
         env:
           - key: SONAR_URL
             value: "${SONAR_URL}"
-          - key: CHAT_WEBHOOK_URL
-            value: "${CHAT_WEBHOOK_URL:-}"
 
 credentials:
   system:

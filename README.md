@@ -120,13 +120,21 @@ Checkout (REPO_URL @ BRANCH) -> Test -> Lint -> SonarQube scan + quality gate ->
 | `REPO_URL`, `BRANCH` | what to build |
 | `SONAR_PROJECT_KEY`, `SONAR_PROJECT_NAME` | project in SonarQube (the first scan creates it) |
 | `SCAN_BRANCHES` | branches that are scanned (default `main,master`). Community Build keeps one analysis per project, so other branches run test, lint and build only |
-| `GIT_CREDENTIALS_ID`, `NOTIFY_EMAIL` | optional: private repo credential, failure mail |
+| `GIT_CREDENTIALS_ID` | optional: Jenkins credential id for a private repo |
 
 ```bash
 cp .env.example .env     # set SONAR_URL, SONAR_TOKEN, JENKINS_ADMIN_PASSWORD
 devbox run jenkins-up    # = docker compose --env-file .env -f jenkins/docker-compose.yml up -d --build
 # open http://localhost:8080, log in, job "sonar-pipeline" > Build with Parameters
 ```
+
+Jenkins plugins needed: **Pipeline**, **Git**, **Credentials Binding**. Nothing else (no SonarQube, JUnit or
+Timestamper plugin). Also create the Secret text credential `sonar-token` and the global env var `SONAR_URL`
+(the `jenkins/` image does both for you).
+
+When a build fails, the end of the console log shows the failed stage, the reason and, for the Sonar stage,
+the red quality gate conditions (metric, actual value, limit). The same stage name is the build description.
+There is no mail or chat notification.
 
 The image is configured by code (`jenkins/casc.yaml`): admin user, the `sonar-token` credential, `SONAR_URL`
 and the `sonar-pipeline` job all exist on first boot. There is no Docker-in-Docker and no SonarQube webhook:

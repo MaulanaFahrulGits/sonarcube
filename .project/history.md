@@ -4,7 +4,7 @@ Running log of what exists and what changed. **Add an entry at the top of "Chang
 process changes** (what, why, how it was verified). Do not put hostnames, tokens, account names or emails here:
 this file is pushed to a public repository.
 
-## What exists (state as of 2026-10-12)
+## What exists (state as of 2026-10-13)
 
 Goal of the R&D: use SonarQube as a security / quality gate in a DevSecOps flow (local commit + Jenkins CI),
 ahead of a GCP serverless deploy.
@@ -47,6 +47,20 @@ in a git-ignored `.env` (template: `.env.example`).
 
 ## Change log
 
+### 2026-10-13 - failure reporting, smaller devbox
+- `Jenkinsfile`: removed the failure mail (`NOTIFY_EMAIL`) and chat webhook. A failed build now ends with a
+  block in the console log that names the failed stage, a one-line reason, and for the Sonar stage the red
+  quality gate conditions (metric, actual value, limit) read from `api/qualitygates/project_status`. The stage
+  name is also written to the build description. Removed `mailer` from `jenkins/plugins.txt`, `CHAT_WEBHOOK_URL`
+  from `jenkins/casc.yaml` and `.env.example`. Not run on a real Jenkins yet.
+- `Jenkinsfile`: removed `timestamps()` and the `junit` publisher, so only Pipeline, Git and Credentials
+  Binding are required. Unit tests are unchanged: Spring Boot tests (`spring-boot-starter-test`, JUnit 5) run by
+  Maven Surefire in the Test stage; failures show in the console log instead of a Jenkins test report. Removed
+  `timestamper` and `junit` from `jenkins/plugins.txt`.
+- `devbox.json`: packages reduced to `jdk@21`. `git` was only used through the host (the hook and init_hook run
+  `git`, and the repo is cloned with it), and `curl` is not needed because `mvnw` falls back to a Java
+  downloader. `devbox shell --pure` would hide the host `git`; use plain `devbox shell`.
+
 ### 2026-10-12 - hardening, Jenkins template, publish prep
 - **Fixed: commit hook never ran on this machine.** `.githooks/pre-commit`, `scan.sh` and `mvnw` were mode 644 on
   disk (index had 755, but `core.fileMode=false` hid it), so git ignored the hook. Restored `+x` and set
@@ -56,7 +70,7 @@ in a git-ignored `.env` (template: `.env.example`).
 - `.githooks/pre-commit`: `scan.sh` changes now trigger the full gate.
 - `Jenkinsfile`: rewritten as a parameterized template. Stages: Checkout (REPO_URL @ BRANCH) -> Test -> Lint ->
   SonarQube scan + gate -> Build (jar archived). Replaced the Docker agent and `waitForQualityGate` webhook with
-  controller execution and `sonar.qualitygate.wait`. Mail and chat notification are optional.
+  controller execution and `sonar.qualitygate.wait`. (Mail and chat were removed again on 2026-10-13.)
 - `jenkins/`: new `plugins.txt` and `casc.yaml` (admin user, `sonar-token` credential, `SONAR_URL`, seeded
   `sonar-pipeline` job); Dockerfile no longer installs the docker CLI; compose binds `127.0.0.1:8080`, reads
   `.env` and refuses to start without admin password, URL and token.

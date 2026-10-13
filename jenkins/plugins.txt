@@ -3,6 +3,3 @@ job-dsl
 workflow-aggregator
 git
 credentials-binding
-timestamper
-junit
-mailer
