@@ -57,7 +57,7 @@ in a git-ignored `.env` (template: `.env.example`).
   Binding are required. Unit tests are unchanged: Spring Boot tests (`spring-boot-starter-test`, JUnit 5) run by
   Maven Surefire in the Test stage; failures show in the console log instead of a Jenkins test report. Removed
   `timestamper` and `junit` from `jenkins/plugins.txt`.
-- `devbox.json`: packages reduced to `jdk@21`. `git` was only used through the host (the hook and init_hook run
+- `devbox.json`: packages reduced to `jdk@21`; `devbox.lock` committed. `git` was only used through the host (the hook and init_hook run
   `git`, and the repo is cloned with it), and `curl` is not needed because `mvnw` falls back to a Java
   downloader. `devbox shell --pure` would hide the host `git`; use plain `devbox shell`.
 
@@ -105,12 +105,11 @@ in a git-ignored `.env` (template: `.env.example`).
 | Hook rejects bad code | **verified** | `demo/bad-examples/LegacyUtil.java.txt` rejected at lint (2 violations) |
 | Hook skips docs-only commits | verified | |
 | `casc.yaml`, `docker-compose.yml`, `devbox.json` parse | verified | YAML / JSON parser |
-| `devbox shell` / `devbox run build` | **pending** | Nix not installed in this WSL distro; its installer needs `sudo` in a terminal |
+| `devbox shell`, hook through devbox (no JDK on PATH) | **verified** 2026-10-13 | Nix JDK 21.0.12.1; commit gated by lint, 3 tests, Sonar gate PASSED |
 | Jenkins image build, boot, JCasC job, full pipeline | **pending** | Docker socket not accessible to the dev user (docker group) |
 
 ## Open items
 
-- Install Nix (`devbox shell` once, needs sudo), then commit `devbox.lock` (reproducible versions).
 - Add the dev user to the `docker` group and run `devbox run jenkins-up` to verify the Jenkins image.
 - Pin Jenkins plugin versions in `jenkins/plugins.txt` once the image is known to work.
 - Java package and Maven groupId still contain the company name (`com.altama`).
