@@ -14,12 +14,11 @@
       "test": "./mvnw -B test",
       "lint": "./mvnw -B checkstyle:check",
       "scan": "./scan.sh",
-      "run": "bash -c \"set -a; . <(tr -d '\\r' < .env); set +a; DB_URL=jdbc:postgresql://localhost:\\${DB_PORT:-5433}/sonarcube ./mvnw -B spring-boot:run\"",
-      "jenkins-up": "docker compose --env-file .env -f jenkins/docker-compose.yml up -d --build",
-      "jenkins-logs": "docker compose --env-file .env -f jenkins/docker-compose.yml logs -f jenkins",
-      "jenkins-down": "docker compose --env-file .env -f jenkins/docker-compose.yml down",
-      "db-up": "docker compose --env-file .env up -d --wait db",
-      "db-down": "docker compose --env-file .env down"
+      "run": "DB_URL=jdbc:postgresql://localhost:5433/sonarcube DB_USER=sonarcube DB_PASSWORD=sonarcube-learn ./mvnw -B spring-boot:run",
+      "startup": "docker compose --env-file .env -f startup/docker-compose.yml up -d --build",
+      "startup-down": "docker compose --env-file .env -f startup/docker-compose.yml down",
+      "db-up": "docker compose --env-file .env -f startup/docker-compose.yml up -d --wait db",
+      "jenkins-logs": "docker compose --env-file .env -f startup/docker-compose.yml logs -f jenkins"
     }
   }
 }

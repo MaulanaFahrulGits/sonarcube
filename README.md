@@ -14,8 +14,8 @@ Every commit is gated locally (lint, unit tests, SonarQube quality gate), and Je
 ├── src/main/java/...        application: GET /api/students reads Postgres (GradeService is the sample logic)
 ├── src/test/java/...        JUnit 5 tests (H2 in memory, no database needed)
 ├── db/init.sql              schema + sample data (Postgres first start, and the tests)
-├── docker-compose.yml       the DATABASE only (separate infrastructure, not started by the pipeline)
-├── Dockerfile               runtime image of the application (the pipeline copies the built jar in)
+├── Dockerfile               runtime image of the APPLICATION (the pipeline copies the built jar in)
+├── startup/                 the learning environment: docker-compose.yml (Postgres + Jenkins) and jenkins/ (image, plugins, JCasC)
 ├── scripts/deploy.sh        stop the running app, start the new image, wait healthy, roll back on failure
 ├── scripts/smoke-test.sh    GET /api/students must return data
 ├── config/checkstyle.xml    lint rules (Checkstyle)
@@ -24,7 +24,6 @@ Every commit is gated locally (lint, unit tests, SonarQube quality gate), and Je
 ├── devbox.json              reproducible dev environment (JDK 21, git, curl) + helper scripts
 ├── .env.example             copy to .env: SONAR_URL, SONAR_TOKEN, SONAR_PROJECT_KEY, Jenkins admin
 ├── Jenkinsfile              CI/CD template: checkout, test, lint, Sonar scan + gate, build, image, deploy app, smoke test
-├── jenkins/                 Dockerfile, plugins, Configuration-as-Code and compose for Jenkins
 ├── demo/bad-examples/       deliberately bad classes (.txt, not compiled) to trigger failures
 ├── SONAR-RESEARCH.md        research summary (sanitized: URL/keys are variables)
 ├── .project/history.md      running log of what was built and changed
@@ -53,9 +52,10 @@ Devbox installs the right JDK and tools for you. Nothing else is installed manua
 | `devbox run test` | unit tests only |
 | `devbox run lint` | Checkstyle only |
 | `devbox run scan` | everything above, then the SonarQube scan and quality gate |
-| `devbox run run` | start the app on the host (needs `devbox run db-up` and `DB_PASSWORD` in `.env`) |
-| `devbox run db-up` / `db-down` | start / stop the Postgres container |
-| `devbox run jenkins-up` / `jenkins-logs` / `jenkins-down` | manage the local Jenkins container |
+| `devbox run startup` / `startup-down` | start / stop the local Postgres + Jenkins (`startup/docker-compose.yml`) |
+| `devbox run db-up` | only the database |
+| `devbox run run` | the app on the host against that database, http://localhost:8080/api/students |
+| `devbox run jenkins-logs` | follow the Jenkins log |
 
 ## Without devbox
 
@@ -97,19 +97,34 @@ duplication above 3%, or a security / reliability / maintainability rating worse
 > The hook and Jenkins both write to the same project, so the dashboard shows whichever scan ran last,
 > including a developer's uncommitted-but-staged work.
 
-## Application and database
+## Learning environment (`startup/`)
 
-`GET /api/students` returns the rows of the `students` table with the letter grade of each score.
+Everything you need to practise the whole flow (code, test, lint, SonarQube scan, build an image, run it) on one
+machine. Only the SonarQube server is yours; Jenkins, the database and the application run in docker.
 
 ```bash
-devbox run db-up      # Postgres in docker (docker-compose.yml), needs DB_PASSWORD in .env
-devbox run run        # the app on the host, http://localhost:8080/api/students
-devbox run db-down    # stop the database (data stays in the volume; add -v by hand to wipe it)
+cp .env.example .env            # set SONAR_URL and SONAR_TOKEN (and SONAR_PROJECT_KEY)
+devbox run startup              # = docker compose --env-file .env -f startup/docker-compose.yml up -d --build
 ```
 
-The database is **separate infrastructure**: start it once. The Jenkins pipeline only ships the application
-container, like a real project; it never starts or stops the database. The application reaches it through the
-docker network `sonarcube-net` as `sonarcube-db:5432`.
+| Service | URL / name | Login |
+|---|---|---|
+| Jenkins | http://localhost:8080 | `admin` / `admin` (job `sonar-pipeline` already exists) |
+| Postgres | container `sonarcube-db`, host port `5433` | user `sonarcube`, password `sonarcube-learn` |
+| Application (after a green pipeline) | http://127.0.0.1:8081/api/students | none |
+
+Then: open Jenkins, job `sonar-pipeline` > *Build with Parameters*, set `SONAR_PROJECT_KEY` (the first run only
+registers the parameters and fails, that is normal), run it, and `curl http://127.0.0.1:8081/api/students`.
+
+The passwords above are hardcoded on purpose in `startup/docker-compose.yml`: it is a throw-away local setup and
+there is nothing to configure. Your SonarQube URL and token are the only values that come from your `.env`.
+
+The pipeline only ships the **application**. Jenkins and the database are infrastructure that you start once
+with `startup`, like in a real project. Jenkins uses your machine's docker through the mounted `docker.sock`, so
+the image it builds and the container it starts appear in your own `docker ps`.
+
+`GET /api/students` returns the rows of the `students` table with the letter grade of each score
+(`db/init.sql` has the schema and four sample rows).
 
 ## Git credentials for this project
 
@@ -159,14 +174,14 @@ passed the quality gate is ever started.
 | `SONAR_TOKEN_INPUT` | optional: Sonar token typed per build (see secret sources below) |
 | `DEPLOY` | build the image and (re)start the app after a green scan (default on) |
 | `IMAGE_NAME`, `APP_PORT` | image and container name (`sonarcube`), host port on 127.0.0.1 (`8081`) |
-| `DB_URL`, `DB_USER`, `DOCKER_NETWORK` | how the app reaches the database (defaults match `docker-compose.yml`) |
+| `DB_URL`, `DB_USER`, `DOCKER_NETWORK` | how the app reaches the database (defaults match `startup/docker-compose.yml`) |
 | `DB_PASSWORD_INPUT` | optional: DB password typed per build |
 | `GIT_CREDENTIALS_ID` | optional: Jenkins credential id for a private repo |
 
-**What the Jenkins node needs:** Pipeline, Git and Credentials Binding plugins; JDK 21 (set `JAVA_HOME` in the
-`environment` block of the `Jenkinsfile` to its path, default `/usr/lib/jvm/java-21-openjdk`); `git`, `curl`;
-and, for the deploy, `docker` usable by the `jenkins` user (member of the `docker` group). The database must
-already be running (`devbox run db-up`). Also set the global env var `SONAR_URL`.
+**What the Jenkins node needs** (the image in `startup/jenkins/` already has all of it): Pipeline, Git and
+Credentials Binding plugins; JDK 21 (set `JAVA_HOME` in the `environment` block of the `Jenkinsfile` to its path,
+default `/usr/lib/jvm/java-21-openjdk`); `git`, `curl`; for the deploy `docker` usable by the Jenkins user; and the
+database already running (`devbox run startup` or `db-up`). Also the global env var `SONAR_URL`.
 
 Secrets (Sonar token, DB password) are read from the first of these that is set:
 
@@ -190,8 +205,9 @@ tagged with the build number and `latest` and stay in the node's local docker (n
 When a build fails, the end of the console log shows the failed stage, the reason and the first errors,
 including the red quality gate conditions for the Sonar stage. There is no mail or chat notification.
 
-`jenkins/` is a ready-made Jenkins image (JCasC: admin user, `sonar-token` credential, `SONAR_URL`, the
-`sonar-pipeline` job). It has no docker CLI, so use it with `DEPLOY` off, or run Jenkins on a host with docker.
+`startup/jenkins/` is the Jenkins image (JCasC in `casc.yaml`): user `admin`, credentials `sonar-token` (from your
+`.env`) and `db-password`, the global env `SONAR_URL`, the job `sonar-pipeline` (Jenkinsfile of branch `rnd`),
+and the docker CLI. There is no SonarQube webhook: the scan waits for the gate by polling.
 
 ## Troubleshooting
 
@@ -204,11 +220,10 @@ including the red quality gate conditions for the Sonar stage. There is no mail 
 | Checkstyle violations | the console lists file and line; rules are in `config/checkstyle.xml` |
 | Hook does not run | `git config core.hooksPath` should print `.githooks`; run `devbox shell` or set it manually |
 | `bad interpreter` / `\r` errors on Windows | the repo forces LF for `*.sh` and hooks; re-clone or `git rm --cached -r . && git reset --hard` |
-| App fails at start with `Could not resolve placeholder 'DB_PASSWORD'` | `DB_PASSWORD` is not set; the container gets it from the pipeline, `devbox run run` from `.env` |
-| `password authentication failed for user "sonarcube"` | the password differs from the one the database volume was created with. Same value as in `.env`, or `docker compose down -v` to recreate |
-| Deploy: `docker network 'sonarcube-net' does not exist` | the database was never started: `devbox run db-up` |
-| Deploy: `this user cannot use docker` | add the `jenkins` user to the `docker` group and restart Jenkins |
+| App fails at start with `Could not resolve placeholder 'DB_PASSWORD'` | `DB_PASSWORD` is not set; the container gets it from the pipeline (credential `db-password`), `devbox run run` sets it itself |
+| `password authentication failed for user "sonarcube"` | the password differs from the one the database volume was created with (`sonarcube-learn`); `devbox run startup-down` then `docker volume rm sonarcube-startup_sonarcube-pgdata` to recreate |
+| Deploy: `docker network 'sonarcube-net' does not exist` | the database was never started: `devbox run startup` |
+| Deploy: `this user cannot use it` (own Jenkins, not `startup/`) | add the `jenkins` user to the `docker` group and restart Jenkins |
 | Hook silently does nothing | the hook files lost their executable bit: `chmod +x .githooks/pre-commit scan.sh mvnw` and `git config core.fileMode true` |
-| Jenkins fails at *SonarQube scan* with `SONAR_URL is not set` | start it with `devbox run jenkins-up` (reads `.env`) |
+| Prerequisites: `SonarQube is not reachable` | `SONAR_URL` in `.env` is still the example value, or the Jenkins container cannot reach your SonarQube (VPN, DNS). After editing `.env` run `devbox run startup` again |
 | Jenkins: `release version 21 not supported` / `no usable Java 21` / `JAVA_HOME=... has no bin/java` | the JDK path in the Jenkinsfile `environment` block (`JAVA_HOME = "/usr/lib/jvm/java-21-openjdk"`) does not exist on your server or is older than `java.version` in `pom.xml`. Edit that path (`ls /usr/lib/jvm`) |
-| Jenkins container exits at boot | `JENKINS_ADMIN_PASSWORD`, `SONAR_URL` or `SONAR_TOKEN` missing in `.env` (compose refuses to start) |

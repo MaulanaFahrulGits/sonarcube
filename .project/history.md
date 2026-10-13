@@ -70,6 +70,20 @@ in a git-ignored `.env` (template: `.env.example`).
 - Pushed to `origin/rnd` with `--no-verify` at the user's request: the Sonar host was not reachable from the
   network in use, so the pre-commit gate could not run. Lint and the 7 tests had passed locally just before; the
   Sonar gate runs in the Jenkins build.
+- **Restructured for learners (`startup/`).** The repo is a SonarQube learning project, so the environment is one
+  command: `startup/docker-compose.yml` brings up Postgres and Jenkins; `startup/jenkins/` is the Jenkins image
+  (docker CLI static binary, `/usr/lib/jvm/java-21-openjdk` link, plugins, JCasC). Jenkins uses the host docker
+  through the mounted `docker.sock` (runs as root; local learning only). The app `Dockerfile` stays at the root.
+  Jenkins login, DB password and the `db-password` credential are hardcoded in the compose file on purpose;
+  `SONAR_URL` and `SONAR_TOKEN` are not (company data in a public repo) and come from the git-ignored `.env`.
+  The old `jenkins/docker-compose.yml` and the root `docker-compose.yml` were merged into it. devbox scripts:
+  `startup`, `startup-down`, `db-up`, `jenkins-logs`.
+- **Verified in the containerised Jenkins (2026-10-13):** `startup` up -> job `sonar-pipeline` from branch `rnd`
+  reached Prerequisites with both credentials found, docker working and the DB container detected (it stopped only
+  because the Sonar host was not reachable from that network). A throw-away copy of the Jenkinsfile that does not
+  require the scan then ran green: Checkout, Prerequisites, 7 tests, Lint 0, Build, Image, Deploy, Smoke test;
+  a second run replaced the running container. The test job was deleted afterwards. The Sonar scan stage and the
+  gate from inside this Jenkins are still unverified (network).
 - **Verified locally with docker (2026-10-13):** DB up -> image build -> deploy -> smoke test -> `curl` on the host
   returned the 4 students with grades; redeploy while running replaced the container; a deploy with a wrong DB
   password failed with the cause quoted and rolled back to the previous version, which kept serving 200.
@@ -174,7 +188,8 @@ in a git-ignored `.env` (template: `.env.example`).
 | `devbox shell`, hook through devbox (no JDK on PATH) | **verified** 2026-10-13 | Nix JDK 21.0.12.1; commit gated by lint, 3 tests, Sonar gate PASSED |
 | Jenkins image build, boot, JCasC job + credential | **verified** 2026-10-13 | local Docker container |
 | Pipeline without scan (Prerequisites, Checkout, Test, Lint, Build) | **verified** 2026-10-13 | local Jenkins, `SCAN_BRANCHES=none` |
-| Pipeline with Sonar scan and gate from Jenkins | **pending** | needs the office network (Sonar host not reachable from the personal network used for downloads) |
+| Pipeline with Sonar scan and gate from Jenkins | **pending** | needs a network that can reach the Sonar host |
+| Image, Deploy, Smoke test in the `startup` Jenkins | **verified** 2026-10-13 | test copy of the Jenkinsfile without the scan requirement |
 
 ## Open items
 
