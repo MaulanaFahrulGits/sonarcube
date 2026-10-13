@@ -91,6 +91,18 @@ duplication above 3%, or a security / reliability / maintainability rating worse
 > The hook and Jenkins both write to the same project, so the dashboard shows whichever scan ran last,
 > including a developer's uncommitted-but-staged work.
 
+## Git credentials for this project
+
+`git push` / `git pull` need a GitHub token. Put it in the git-ignored `.env` as `TOKEN_GIT=...` (fine-grained
+token for this repository, *Contents: Read and write*). `scripts/git-credential-env` hands it to git only for
+`github.com` and only inside this repository: `devbox shell` configures that automatically, or run
+
+```bash
+git config --local credential.https://github.com.helper '!bash "$(git rev-parse --show-toplevel)/scripts/git-credential-env"'
+```
+
+The token is never written to `.git/config`, never committed, and other repositories are not affected.
+
 ## Seeing a failure
 
 Copy a bad example into the sources, stage it and commit:

@@ -48,6 +48,10 @@ in a git-ignored `.env` (template: `.env.example`).
 ## Change log
 
 ### 2026-10-13 - failure reporting, smaller devbox
+- **Git credentials scoped to this project.** `scripts/git-credential-env` is a git credential helper that reads
+  `TOKEN_GIT` (and optional `GIT_USERNAME`) from the git-ignored `.env` and answers only for `github.com`.
+  Enabled with repo-local `credential.https://github.com.helper` (devbox `init_hook` does it), so no password
+  prompt and no token in `.git/config`. Global git config is untouched.
 - `Jenkinsfile`: removed the failure mail (`NOTIFY_EMAIL`) and chat webhook. A failed build now ends with a
   block in the console log that names the failed stage, a one-line reason, and for the Sonar stage the red
   quality gate conditions (metric, actual value, limit) read from `api/qualitygates/project_status`. The stage
