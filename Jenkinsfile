@@ -23,7 +23,7 @@ def failureHint(String stageName) {
         case 'Checkout':
             return 'Cannot clone REPO_URL at BRANCH. Check the URL, the branch name, and GIT_CREDENTIALS_ID for a private repo.'
         case 'Test':
-            return 'A unit test failed, the code does not compile, or the node has a JDK older than the project needs ("release version N not supported" or the Java check above). Surefire lists each failing test (search the log for FAILURE or ERROR).'
+            return 'A unit test failed, the code does not compile, or the node has a JDK that is too old or only a JRE (see the Java check above). Surefire lists each failing test (search the log for FAILURE or ERROR).'
         case 'Lint':
             return 'Checkstyle found violations. Each one is listed above as file:line: message. Fix them in the code.'
         case 'SonarQube scan':
@@ -33,6 +33,14 @@ def failureHint(String stageName) {
         default:
             return 'See the console log above for the first error.'
     }
+}
+
+// Runs the Maven wrapper and keeps a copy of its output in .pipeline.log, so a failed build can quote the real error.
+def mvn(String args) {
+    sh """#!/bin/bash
+set -o pipefail
+./mvnw -B ${args} 2>&1 | tee -a .pipeline.log
+"""
 }
 
 // Runs body with SONAR_TOKEN available to sh steps. The shell scripts below also accept SONAR_TOKEN_INPUT.
@@ -130,14 +138,20 @@ if [ -z "$have" ] || [ "$have" -lt "$need" ]; then
   echo "       Manage Jenkins > System > Global properties, or give its path in the JDK_HOME build parameter." >&2
   exit 1
 fi
+JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
+if ! command -v "$JAVAC" >/dev/null 2>&1; then
+  echo "ERROR: Java $have is installed but javac (the compiler) is missing: this is a JRE, not a JDK." >&2
+  echo "       Install the JDK package (for example openjdk-$need-jdk) or point JDK_HOME at a full JDK." >&2
+  exit 1
+fi
 '''
                 // lint is bound to Maven's validate phase, so skip it here; it has its own stage below
-                sh './mvnw -B -Dcheckstyle.skip=true test jacoco:report'
+                script { mvn '-Dcheckstyle.skip=true test jacoco:report' }
             }
             post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         stage('Lint') {
-            steps { sh './mvnw -B checkstyle:check' }
+            steps { script { mvn 'checkstyle:check' } }
             post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
         }
         stage('SonarQube scan') {
@@ -151,7 +165,7 @@ fi
                 script {
                     withSonarToken {
                         sh '''#!/bin/bash
-set -eu
+set -eu -o pipefail
 : "${SONAR_URL:?SONAR_URL is not set on this Jenkins (Manage Jenkins > System > Global properties)}"
 SONAR_TOKEN="${SONAR_TOKEN_INPUT:-${SONAR_TOKEN:-}}"
 : "${SONAR_TOKEN:?no Sonar token: set parameter SONAR_TOKEN_INPUT, global env SONAR_TOKEN or credential sonar-token}"
@@ -162,7 +176,7 @@ if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PR
   -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
   -Dsonar.host.url="$SONAR_URL" \
   ${extra[@]+"${extra[@]}"} \
-  -Dsonar.qualitygate.wait=true
+  -Dsonar.qualitygate.wait=true 2>&1 | tee -a .pipeline.log
 '''
                     }
                 }
@@ -171,7 +185,7 @@ if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PR
         }
         stage('Build') {
             steps {
-                sh './mvnw -B -DskipTests -Dcheckstyle.skip=true package'
+                script { mvn '-DskipTests -Dcheckstyle.skip=true package' }
                 archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, allowEmptyArchive: true
             }
             post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
@@ -186,6 +200,12 @@ if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PR
                 echo '=================== WHY THIS BUILD FAILED ==================='
                 echo "Stage : ${stageName}"
                 echo "Reason: ${failureHint(stageName)}"
+                sh(returnStatus: true, script: '''#!/bin/bash
+if [ -f .pipeline.log ] && grep -qF '[ERROR]' .pipeline.log; then
+  echo "--- first Maven errors from the log ---"
+  grep -F '[ERROR]' .pipeline.log | head -15
+fi
+''')
                 if (stageName == 'SonarQube scan') {
                     printSonarGateFailures()
                 }

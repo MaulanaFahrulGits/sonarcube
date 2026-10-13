@@ -53,6 +53,10 @@ in a git-ignored `.env` (template: `.env.example`).
   quality gate conditions (metric, actual value, limit) read from `api/qualitygates/project_status`. The stage
   name is also written to the build description. Removed `mailer` from `jenkins/plugins.txt`, `CHAT_WEBHOOK_URL`
   from `jenkins/casc.yaml` and `.env.example`. Not run on a real Jenkins yet.
+- `Jenkinsfile`: second Jenkins run passed the Java check but still failed in Test, and the log excerpt did not
+  show the Maven error. Maven output is now also appended to `.pipeline.log` (helper `mvn()`), and the
+  "WHY THIS BUILD FAILED" block quotes the first 15 `[ERROR]` lines. The Java check also verifies that `javac`
+  exists (a JRE-only install reports a valid `java -version`).
 - `Jenkinsfile`: first real Jenkins run failed with `release version 21 not supported` (node had an older JDK).
   Added a Java check at the start of the Test stage (reads `<java.version>` from `pom.xml`, fails with the fix
   in the message) and a `JDK_HOME` parameter that sets `JAVA_HOME` for the build, so no admin rights are needed.
