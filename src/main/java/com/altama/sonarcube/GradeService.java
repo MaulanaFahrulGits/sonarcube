@@ -1,6 +1,9 @@
 package com.altama.sonarcube;
 
+import org.springframework.stereotype.Service;
+
 /** Maps a numeric score (0..100) to a letter grade. */
+@Service
 public class GradeService {
 
     public String grade(int score) {

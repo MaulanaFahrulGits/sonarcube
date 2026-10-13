@@ -1,0 +1,3 @@
+# allow-list: only the built jar goes into the image
+*
+!target/*.jar

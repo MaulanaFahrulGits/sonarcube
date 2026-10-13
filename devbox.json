@@ -1,6 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
-  "packages": ["jdk@21"],
+  "packages": [
+    "jdk@21"
+  ],
   "shell": {
     "init_hook": [
       "git config core.hooksPath .githooks || true",
@@ -12,10 +14,12 @@
       "test": "./mvnw -B test",
       "lint": "./mvnw -B checkstyle:check",
       "scan": "./scan.sh",
-      "run": "./mvnw -B spring-boot:run",
+      "run": "bash -c \"set -a; . <(tr -d '\\r' < .env); set +a; DB_URL=jdbc:postgresql://localhost:\\${DB_PORT:-5433}/sonarcube ./mvnw -B spring-boot:run\"",
       "jenkins-up": "docker compose --env-file .env -f jenkins/docker-compose.yml up -d --build",
       "jenkins-logs": "docker compose --env-file .env -f jenkins/docker-compose.yml logs -f jenkins",
-      "jenkins-down": "docker compose --env-file .env -f jenkins/docker-compose.yml down"
+      "jenkins-down": "docker compose --env-file .env -f jenkins/docker-compose.yml down",
+      "db-up": "docker compose --env-file .env up -d --wait db",
+      "db-down": "docker compose --env-file .env down"
     }
   }
 }

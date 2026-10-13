@@ -1,3 +1,8 @@
 spring:
   application:
     name: sonarcube
+  datasource:
+    # docker-compose sets these; DB_PASSWORD has no default on purpose, so the app fails loudly without it
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/sonarcube}
+    username: ${DB_USER:sonarcube}
+    password: ${DB_PASSWORD}

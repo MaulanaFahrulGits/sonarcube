@@ -5,6 +5,12 @@ FROM jenkins/jenkins:lts-jdk21
 COPY --chown=jenkins:jenkins plugins.txt /usr/share/jenkins/ref/plugins.txt
 RUN jenkins-plugin-cli -f /usr/share/jenkins/ref/plugins.txt
 
+# The Jenkinsfile sets JAVA_HOME=/usr/lib/jvm/java-21-openjdk (the usual path on RHEL-like servers). Give this image
+# the same path so the same Jenkinsfile runs here unchanged.
+USER root
+RUN mkdir -p /usr/lib/jvm && ln -s /opt/java/openjdk /usr/lib/jvm/java-21-openjdk
+USER jenkins
+
 # Jenkins Configuration as Code: users, the SonarQube credential and the pipeline job exist on first boot.
 COPY --chown=jenkins:jenkins casc.yaml /usr/share/jenkins/casc.yaml
 ENV CASC_JENKINS_CONFIG=/usr/share/jenkins/casc.yaml

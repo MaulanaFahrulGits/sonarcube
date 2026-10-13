@@ -47,7 +47,48 @@ in a git-ignored `.env` (template: `.env.example`).
 
 ## Change log
 
+### 2026-10-13 - end-to-end: endpoint + Postgres + image + deploy (branch `rnd`)
+- **App:** `GET /api/students` (controller -> service -> `JdbcClient` repository) reads the `students` table and
+  adds the letter grade from `GradeService`. Deps: `spring-boot-starter-webmvc`, `-jdbc`, `postgresql` (runtime),
+  `h2` (test). Config from env: `DB_URL`, `DB_USER`, `DB_PASSWORD` (no default on purpose).
+- **Tests:** 7 tests, no database needed. H2 in memory loads the same `db/init.sql` that Postgres runs; one test
+  goes through the whole stack with `MockMvc` + the real context. Lint 0 violations.
+- **Database = separate infrastructure** (`docker-compose.yml`, container `sonarcube-db`, network
+  `sonarcube-net`, named volume). The pipeline never starts it: it mirrors a real project where the pipeline only
+  ships the application. Started with `devbox run db-up`; needs `DB_PASSWORD` in `.env`.
+- **Runtime image:** `Dockerfile` (temurin 21 JRE alpine, non-root) copies the jar the pipeline built.
+- **Jenkinsfile** reworked: Checkout -> Prerequisites -> Test -> Lint -> SonarQube scan -> Build -> Image ->
+  Deploy -> Smoke test. Deploy/Image/Smoke run only when `DEPLOY` is on and the branch was scanned. Java version is
+  read from `pom.xml` (the `REQUIRED_JAVA` parameter is gone). New parameters: `DEPLOY`, `IMAGE_NAME`,
+  `APP_PORT`, `DB_URL`, `DB_USER`, `DB_PASSWORD_INPUT`, `DOCKER_NETWORK`; DB password sources mirror the Sonar
+  token (parameter, global env, credential `db-password`). `SCAN_BRANCHES` default now includes `rnd`.
+- **`scripts/deploy.sh`:** stops the running container, starts the new tag with a healthcheck, waits, and on
+  failure restores the previous image with the settings of the previous container (a first version used the new
+  deploy's settings for the rollback; found by testing a deploy with a wrong password).
+- `Jenkinsfile`: Checkout trims `REPO_URL` and `BRANCH`. A user's job failed with `fatal: protocol ' https' is not
+  supported`: a leading space in a pasted URL (not an HTTPS problem; no reverse proxy is needed to clone).
+- Pushed to `origin/rnd` with `--no-verify` at the user's request: the Sonar host was not reachable from the
+  network in use, so the pre-commit gate could not run. Lint and the 7 tests had passed locally just before; the
+  Sonar gate runs in the Jenkins build.
+- **Verified locally with docker (2026-10-13):** DB up -> image build -> deploy -> smoke test -> `curl` on the host
+  returned the 4 students with grades; redeploy while running replaced the container; a deploy with a wrong DB
+  password failed with the cause quoted and rolled back to the previous version, which kept serving 200.
+  Test containers and volume were removed afterwards.
+
 ### 2026-10-13 - failure reporting, smaller devbox
+- `Jenkinsfile`: Java now comes from the `environment` block (`JAVA_HOME = "/usr/lib/jvm/java-21-openjdk"`,
+  `PATH = "${env.JAVA_HOME}/bin:${env.PATH}"`), as asked; the `JDK_HOME` parameter is removed. The path must exist
+  on the server (Prerequisites fails with the fix if it does not). `jenkins/Dockerfile` links
+  `/usr/lib/jvm/java-21-openjdk` to the image's JDK so the same Jenkinsfile runs in the local container.
+- **Jenkins tested for real** in a local container built from `jenkins/` (Docker; job `sonar-pipeline` seeded by
+  JCasC, plus a throwaway `local-test` job that runs the working-tree Jenkinsfile without a push). Findings:
+  - first build, parameters not registered yet: `params.X` has the defaults but `sh` gets no `REPO_URL` / `BRANCH`
+    env vars, so the repo check failed. Prerequisites now passes them explicitly with `withEnv`.
+  - the compose file passed `SONAR_TOKEN` into the container, which Jenkins reads as a global env var and skips the
+    masked credential. It is now `JCASC_SONAR_TOKEN` (compose) and casc.yaml builds credential `sonar-token` from it.
+    The compose file also no longer forwards the whole `.env` (so `TOKEN_GIT` stays out of the container).
+  - with the scan skipped (`SCAN_BRANCHES=none`) the full run was green: Prerequisites, Checkout, Test (3 tests),
+    Lint (0 violations), Build + archive. A token typed as `SONAR_TOKEN_INPUT` was masked and absent from the log.
 - `Jenkinsfile`: bug found on the first real run of the Prerequisites stage: `params.SONAR_TOKEN_INPUT?.trim()`
   threw `No signature of method: hudson.util.Secret.trim()`, because password parameters are `Secret` objects,
   not Strings. All checks of that parameter now go through `isSet()` (`toString()` first). The failure hint also
@@ -131,7 +172,9 @@ in a git-ignored `.env` (template: `.env.example`).
 | Hook skips docs-only commits | verified | |
 | `casc.yaml`, `docker-compose.yml`, `devbox.json` parse | verified | YAML / JSON parser |
 | `devbox shell`, hook through devbox (no JDK on PATH) | **verified** 2026-10-13 | Nix JDK 21.0.12.1; commit gated by lint, 3 tests, Sonar gate PASSED |
-| Jenkins image build, boot, JCasC job, full pipeline | **pending** | Docker socket not accessible to the dev user (docker group) |
+| Jenkins image build, boot, JCasC job + credential | **verified** 2026-10-13 | local Docker container |
+| Pipeline without scan (Prerequisites, Checkout, Test, Lint, Build) | **verified** 2026-10-13 | local Jenkins, `SCAN_BRANCHES=none` |
+| Pipeline with Sonar scan and gate from Jenkins | **pending** | needs the office network (Sonar host not reachable from the personal network used for downloads) |
 
 ## Open items
 

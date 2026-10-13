@@ -24,7 +24,7 @@ credentials:
               scope: GLOBAL
               id: sonar-token
               description: "SonarQube analysis token (from .env)"
-              secret: "${SONAR_TOKEN}"
+              secret: "${JCASC_SONAR_TOKEN}"
 
 # One generic job. Its script comes from the Jenkinsfile in PIPELINE_REPO_URL; the project to build
 # (REPO_URL, BRANCH, SONAR_PROJECT_KEY, ...) is chosen with "Build with Parameters".

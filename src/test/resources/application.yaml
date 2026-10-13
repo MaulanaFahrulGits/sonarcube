@@ -1,0 +1,8 @@
+# Tests use an in-memory H2 database loaded from the same db/init.sql that Postgres runs.
+spring:
+  datasource:
+    url: jdbc:h2:mem:sonarcube;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+  sql:
+    init:
+      schema-locations: file:db/init.sql
