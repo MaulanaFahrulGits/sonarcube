@@ -53,6 +53,12 @@ in a git-ignored `.env` (template: `.env.example`).
   quality gate conditions (metric, actual value, limit) read from `api/qualitygates/project_status`. The stage
   name is also written to the build description. Removed `mailer` from `jenkins/plugins.txt`, `CHAT_WEBHOOK_URL`
   from `jenkins/casc.yaml` and `.env.example`. Not run on a real Jenkins yet.
+- `Jenkinsfile`: new first stage **Prerequisites**. Prints all build parameters with token/password values masked
+  (name contains TOKEN, PASSWORD or SECRET), the effective `SONAR_URL`, `JAVA_HOME`, node and token source, then
+  checks tools, Java/`javac` against the new `REQUIRED_JAVA` parameter, repo and branch with `git ls-remote`,
+  Maven Central (warning only), and for scanned branches SonarQube status plus token validity
+  (`api/authentication/validate`). Failures are `[FAIL]` lines and copied to `.pipeline.log` so the failure block
+  quotes them. The script was tested locally in four scenarios (all good, no token, no Java, bad branch).
 - `Jenkinsfile`: second Jenkins run passed the Java check but still failed in Test, and the log excerpt did not
   show the Maven error. Maven output is now also appended to `.pipeline.log` (helper `mvn()`), and the
   "WHY THIS BUILD FAILED" block quotes the first 15 `[ERROR]` lines. The Java check also verifies that `javac`

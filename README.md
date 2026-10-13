@@ -112,7 +112,7 @@ The `Jenkinsfile` is a template: one generic job builds any Java + Maven-wrapper
 this one (Checkstyle and JaCoCo in `pom.xml`). Stages:
 
 ```
-Checkout (REPO_URL @ BRANCH) -> Test -> Lint -> SonarQube scan + quality gate -> Build (jar archived)
+Prerequisites -> Checkout (REPO_URL @ BRANCH) -> Test -> Lint -> SonarQube scan + quality gate -> Build (jar archived)
 ```
 
 | Parameter | Meaning |
@@ -120,6 +120,7 @@ Checkout (REPO_URL @ BRANCH) -> Test -> Lint -> SonarQube scan + quality gate ->
 | `REPO_URL`, `BRANCH` | what to build |
 | `SONAR_PROJECT_KEY`, `SONAR_PROJECT_NAME` | project in SonarQube (the first scan creates it) |
 | `SCAN_BRANCHES` | branches that are scanned (default `main,master`). Community Build keeps one analysis per project, so other branches run test, lint and build only |
+| `REQUIRED_JAVA` | minimum Java major version checked in Prerequisites (default `21`) |
 | `JDK_HOME` | optional: path of a JDK 21 on the Jenkins node (empty = the node's `JAVA_HOME` / `java`). Needs no admin rights |
 | `SONAR_TOKEN_INPUT` | optional: Sonar token typed per build (see token sources below) |
 | `GIT_CREDENTIALS_ID` | optional: Jenkins credential id for a private repo |
@@ -139,6 +140,11 @@ these ways (first one found wins; the `jenkins/` image creates the credential fo
 | Build parameter `SONAR_TOKEN_INPUT` | typed in *Build with Parameters*, password type (masked) | no |
 | Global env var `SONAR_TOKEN` | Manage Jenkins > System > Global properties > Environment variables | yes, and it is stored in plain text |
 | Credential `sonar-token` (Secret text) | Manage Jenkins > Credentials | yes, recommended |
+
+The first stage, **Prerequisites**, runs before anything is checked out or built. It prints every parameter
+that this build uses (token and password values are masked), then checks: `bash`/`git`/`curl`, Java and `javac`
+against `REQUIRED_JAVA`, that `REPO_URL` and `BRANCH` are readable, Maven Central, and (when the branch is
+scanned) that SonarQube is UP, a token exists and it is valid. Problems are `[FAIL]` lines and stop the build.
 
 When a build fails, the end of the console log shows the failed stage, the reason and, for the Sonar stage,
 the red quality gate conditions (metric, actual value, limit). The same stage name is the build description.

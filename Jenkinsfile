@@ -1,5 +1,5 @@
 // Reusable pipeline template for a Java + Maven wrapper project:
-//   checkout BRANCH -> test -> lint -> SonarQube scan + quality gate -> build
+//   prerequisites -> checkout BRANCH -> test -> lint -> SonarQube scan + quality gate -> build
 // Everything project-specific is a build parameter, so one job can build any repo:
 //   REPO_URL, BRANCH, SONAR_PROJECT_KEY, SONAR_PROJECT_NAME.
 // The target project's pom needs the Checkstyle and JaCoCo plugins configured like this repo's pom.xml.
@@ -20,6 +20,8 @@
 // One-line explanation per stage, printed at the end of a failed build.
 def failureHint(String stageName) {
     switch (stageName) {
+        case 'Prerequisites':
+            return 'The environment is not ready. Each problem is a [FAIL] line in the Prerequisites output (Java, token, SonarQube, repository).'
         case 'Checkout':
             return 'Cannot clone REPO_URL at BRANCH. Check the URL, the branch name, and GIT_CREDENTIALS_ID for a private repo.'
         case 'Test':
@@ -49,6 +51,104 @@ def withSonarToken(Closure body) {
         body()
     } else {
         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) { body() }
+    }
+}
+
+// Stage "Prerequisites": show what this build will use (secrets masked) and verify the node before any work starts.
+def checkPrerequisites() {
+    def willScan = params.SCAN_BRANCHES.split(',').collect { it.trim() }.contains(params.BRANCH)
+
+    echo '=================== PARAMETERS USED BY THIS BUILD ==================='
+    for (name in params.keySet()) {
+        def value = params[name]?.toString() ?: ''
+        def secret = ['TOKEN', 'PASSWORD', 'SECRET'].any { name.toUpperCase().contains(it) }
+        def shown = secret ? (value.trim() ? '****** (set, masked)' : '(empty)') : (value ?: '(empty)')
+        echo "${name} = ${shown}"
+    }
+    echo "SONAR_URL (from Jenkins) = ${env.SONAR_URL ?: '(NOT SET)'}"
+    echo "JAVA_HOME (effective)    = ${env.JAVA_HOME ?: '(not set, java from PATH)'}"
+    echo "Node / workspace         = ${env.NODE_NAME} / ${env.WORKSPACE}"
+    echo "SonarQube scan           = ${willScan ? 'YES' : 'NO (BRANCH is not in SCAN_BRANCHES)'}"
+
+    // where the Sonar token comes from (the value is never printed)
+    def tokenSource = 'none'
+    if (params.SONAR_TOKEN_INPUT?.trim()) {
+        tokenSource = 'build parameter SONAR_TOKEN_INPUT'
+    } else if (env.SONAR_TOKEN?.trim()) {
+        tokenSource = 'global environment variable SONAR_TOKEN'
+    } else {
+        try {
+            withCredentials([string(credentialsId: 'sonar-token', variable: 'CHECK_ONLY')]) {
+                tokenSource = "credential 'sonar-token'"
+            }
+        } catch (Exception e) {
+            tokenSource = 'none'
+        }
+    }
+    echo "Sonar token source       = ${tokenSource}"
+
+    def checks = '''#!/bin/bash
+rm -f .pipeline.log
+fail=0
+ok()   { echo "[ OK ]   $*"; }
+warn() { echo "[WARN]   $*"; }
+bad()  { echo "[FAIL]   $*"; echo "[ERROR] $*" >> .pipeline.log; fail=1; }
+echo "=================== PREREQUISITES ==================="
+
+for t in bash git curl; do
+  if command -v "$t" >/dev/null 2>&1; then ok "$t: $("$t" --version 2>&1 | head -1 | cut -c1-70)"; else bad "$t is not installed on this node"; fi
+done
+
+need="${REQUIRED_JAVA:-21}"
+case "$need" in ''|*[!0-9]*) need=21 ;; esac
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
+have=$("$JAVA" -version 2>&1 | grep -o 'version "[0-9]*' | head -1 | grep -o '[0-9]*$' || true)
+if [ -z "$have" ]; then
+  bad "java not found (JAVA_HOME=${JAVA_HOME:-not set}). Install JDK $need, then set JAVA_HOME or the JDK_HOME parameter"
+elif [ "$have" -lt "$need" ]; then
+  bad "Java $have found but the project needs $need or newer. Set JAVA_HOME or the JDK_HOME parameter"
+else
+  ok "java $have (needs $need)"
+fi
+if command -v "$JAVAC" >/dev/null 2>&1; then ok "javac is present (JDK, not only a JRE)"; else bad "javac is missing: this is a JRE. Install the JDK package or point JDK_HOME at a full JDK"; fi
+
+if [ -n "${GIT_CREDENTIALS_ID:-}" ]; then
+  warn "private repository credential is set: access is checked at the Checkout stage"
+elif GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --heads "$REPO_URL" "refs/heads/$BRANCH" >/dev/null 2>&1; then
+  ok "repository is readable and branch '$BRANCH' exists"
+else
+  bad "cannot read $REPO_URL or it has no branch '$BRANCH'. Check the URL, the branch, the network, or set GIT_CREDENTIALS_ID"
+fi
+
+code=$(curl -sI -m 10 -o /dev/null -w '%{http_code}' https://repo.maven.apache.org/maven2/ 2>/dev/null || true)
+if [ "$code" = "200" ]; then ok "Maven Central is reachable"; else warn "Maven Central answered '${code:-nothing}': fine only if this node uses a Maven mirror"; fi
+
+if [ "${WILL_SCAN:-}" = "true" ]; then
+  if [ "${TOKEN_SOURCE:-none}" = "none" ]; then
+    bad "no Sonar token: set parameter SONAR_TOKEN_INPUT, global env SONAR_TOKEN, or credential sonar-token"
+  elif [ -z "${SONAR_URL:-}" ]; then
+    bad "SONAR_URL is not set (Manage Jenkins > System > Global properties > Environment variables)"
+  else
+    SONAR_TOKEN="${SONAR_TOKEN_INPUT:-${SONAR_TOKEN:-}}"
+    st=$(curl -fsS -m 15 "$SONAR_URL/api/system/status" 2>/dev/null | grep -o '"status":"[A-Z_]*"' | head -1 || true)
+    if [ "$st" = '"status":"UP"' ]; then ok "SonarQube is UP at $SONAR_URL"; else bad "SonarQube is not reachable or not UP at $SONAR_URL (answer: ${st:-none})"; fi
+    valid=$(curl -fsS -m 15 -u "$SONAR_TOKEN:" "$SONAR_URL/api/authentication/validate" 2>/dev/null | grep -o '"valid":[a-z]*' || true)
+    if [ "$valid" = '"valid":true' ]; then ok "Sonar token is valid"; else bad "Sonar token was rejected or could not be checked"; fi
+  fi
+else
+  ok "Sonar scan is skipped for this branch, so SonarQube and the token are not checked"
+fi
+
+if [ "$fail" -ne 0 ]; then echo "Prerequisites FAILED: fix the [FAIL] lines above, nothing was built."; exit 1; fi
+echo "All prerequisites are met."
+'''
+    withEnv(["WILL_SCAN=${willScan}", "TOKEN_SOURCE=${tokenSource}"]) {
+        if (tokenSource == 'none') {
+            sh(script: checks)
+        } else {
+            withSonarToken { sh(script: checks) }
+        }
     }
 }
 
@@ -96,6 +196,8 @@ pipeline {
                description: 'Only these branches are scanned: Community Build keeps one analysis per project, so other branches would overwrite it')
         password(name: 'SONAR_TOKEN_INPUT', defaultValue: '',
                  description: 'SonarQube token. Only if you cannot add the sonar-token credential or a global SONAR_TOKEN (empty = use those)')
+        string(name: 'REQUIRED_JAVA', defaultValue: '21',
+               description: 'Minimum Java major version the node must have (checked before anything is built)')
         string(name: 'JDK_HOME', defaultValue: '',
                description: 'Path of a JDK on the Jenkins node, e.g. /usr/lib/jvm/java-21-openjdk-amd64 (empty = the node JAVA_HOME or java on PATH)')
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: '',
@@ -107,6 +209,10 @@ pipeline {
         JAVA_HOME          = "${params.JDK_HOME?.trim() ? params.JDK_HOME.trim() : (env.JAVA_HOME ?: '')}"
     }
     stages {
+        stage('Prerequisites') {
+            steps { script { checkPrerequisites() } }
+            post { failure { script { env.FAILED_STAGE = env.STAGE_NAME } } }
+        }
         stage('Checkout') {
             steps {
                 script {
@@ -202,7 +308,7 @@ if [ -n "${SONAR_PROJECT_NAME:-}" ]; then extra+=("-Dsonar.projectName=$SONAR_PR
                 echo "Reason: ${failureHint(stageName)}"
                 sh(returnStatus: true, script: '''#!/bin/bash
 if [ -f .pipeline.log ] && grep -qF '[ERROR]' .pipeline.log; then
-  echo "--- first Maven errors from the log ---"
+  echo "--- first errors from the log ---"
   grep -F '[ERROR]' .pipeline.log | head -15
 fi
 ''')
