@@ -41,3 +41,6 @@ credential.txt
 ### local secrets ###
 config.env
 *.local.env
+
+### pipeline scratch
+.pipeline.log

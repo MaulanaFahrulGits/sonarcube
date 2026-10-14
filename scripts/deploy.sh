@@ -3,14 +3,24 @@
 # Only the APPLICATION is started here. The database is separate infrastructure (docker-compose.yml) that must
 # already be running, like in a real project where a pipeline only ships the app.
 #
-# usage:  IMAGE_NAME=sonarcube DB_URL=... DB_USER=... DB_PASSWORD=... [APP_PORT=8081] [DOCKER_NETWORK=sonarcube-net] \
-#         scripts/deploy.sh <image-tag>
+# usage:  IMAGE_NAME=sonarcube DB_URL=jdbc:postgresql://sonarcube-db:5432/sonarcube [APP_PORT=8081] \
+#         [DOCKER_NETWORK=sonarcube-net] [DB_USER=...] [DB_PASSWORD=...] scripts/deploy.sh <image-tag>
+# DB_USER and DB_PASSWORD are optional: when the database runs as a local container (the host name in DB_URL is
+# the container name) they are read from that container's POSTGRES_USER / POSTGRES_PASSWORD, so nobody has to
+# type the password. Set them only for a database that is not such a container.
 # On a failed start the previous version (if there was one) is started again and the script still exits 1.
 set -euo pipefail
 
 tag=${1:?usage: deploy.sh <image-tag>}
 image_name=${IMAGE_NAME:-sonarcube}
-: "${DB_URL:?DB_URL is not set}" "${DB_USER:?DB_USER is not set}" "${DB_PASSWORD:?DB_PASSWORD is not set}"
+: "${DB_URL:?DB_URL is not set}"
+db_env() { docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null | sed -n "s/^$2=//p"; }
+rest="${DB_URL#*://}"
+db_host="${rest%%[:/]*}"
+DB_USER=${DB_USER:-$(db_env "$db_host" POSTGRES_USER)}
+DB_PASSWORD=${DB_PASSWORD:-$(db_env "$db_host" POSTGRES_PASSWORD)}
+: "${DB_USER:?DB_USER is not set and container '$db_host' has no POSTGRES_USER}"
+: "${DB_PASSWORD:?DB_PASSWORD is not set and container '$db_host' has no POSTGRES_PASSWORD}"
 export DB_URL DB_USER DB_PASSWORD   # passed to the container by name, so the password is never on a command line
 port=${APP_PORT:-8081}
 name=$image_name

@@ -43,10 +43,9 @@ services:
     environment:
       JENKINS_ADMIN_ID: admin
       JENKINS_ADMIN_PASSWORD: admin
-      # used by startup/jenkins/casc.yaml to create the credentials "sonar-token" and "db-password" and the env SONAR_URL
+      # used by startup/jenkins/casc.yaml to create the credential "sonar-token" and the env SONAR_URL
       SONAR_URL: ${SONAR_URL:-https://sonarqube.example.com}
       JCASC_SONAR_TOKEN: ${SONAR_TOKEN:-set-SONAR_TOKEN-in-.env}
-      JCASC_DB_PASSWORD: sonarcube-learn
       # the pipeline job is created from the Jenkinsfile of this repository
       PIPELINE_REPO_URL: https://github.com/MaulanaFahrulGits/sonarcube.git
       PIPELINE_BRANCH: rnd

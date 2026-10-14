@@ -47,6 +47,36 @@ in a git-ignored `.env` (template: `.env.example`).
 
 ## Change log
 
+### 2026-10-14 - own quality gate in the pipeline, no DB password, readable Jenkinsfile
+- **Feedback 1, database password:** the pipeline no longer asks for it. `scripts/deploy.sh` reads
+  `POSTGRES_USER` / `POSTGRES_PASSWORD` from the running database container (host name of `DB_URL`). Parameters
+  `DB_USER` and `DB_PASSWORD_INPUT` and the JCasC credential `db-password` were removed; a global env
+  `DB_PASSWORD` or a credential `db-password` is still honoured for a database that is not a local container.
+  Prerequisites checks that the container exposes the login instead of failing on a missing secret.
+- **Feedback 2, readability:** the Jenkinsfile went from ~480 to ~290 lines. The long shell blocks moved to
+  `scripts/prerequisites.sh`, `scripts/sonar-scan.sh` and `scripts/sonar-gate.sh` (runnable and testable by
+  hand); the Jenkinsfile only says what happens and in which order. Because the scripts live in the repo, a repo
+  that reuses the Jenkinsfile must carry `scripts/` too.
+- **Feedback 3, which gate does the scan use? Found by querying the server:** project `sonarqube` was on the
+  default *Sonar way*, `rnd-strict` existed but was not assigned. Nothing in the pipeline chose a gate. Now
+  parameter `SONAR_QUALITY_GATE` (default `rnd-strict`) is assigned before the scan by `scripts/sonar-gate.sh`,
+  which also creates the project when missing and creates the gate with the strict conditions when the server does
+  not have it (an existing gate is never modified). Tested against the real server with a temporary project and
+  gate, both deleted afterwards. `scan.sh` does the same when `SONAR_QUALITY_GATE` is set in `.env`.
+- **Question, dashboard name:** the name shown was `sonarcube` for all projects (checked on the server) because
+  `sonar.projectName` was only sent when `SONAR_PROJECT_NAME` was filled; otherwise the Maven plugin uses `<name>`
+  of `pom.xml`. The parameter text claimed "empty = the key", which was wrong. Now the name defaults to the key in
+  the pipeline and in `scan.sh`.
+- Verified: in a probe job `env.STAGE_NAME` in the final `post` block is "Declarative: Post Actions", so each stage
+  keeps `post { failure { markFailed() } }`.
+
+### 2026-10-13 - presentation of the R&D
+- `.project/SonarQube-RnD.pptx`: 10-slide deck (Indonesian, ~15 min, mixed Dev/QA/Lead audience) with speaker
+  notes: what SonarQube is, how it works, quality gate (`rnd-strict` vs the default gate), the R&D setup, 6 setup
+  steps, the Jenkins pipeline, SonarQube features per development stage (used / available / paid edition),
+  findings and limits. No host, token or project names. Built with pptxgenjs; layout checked by rendering in
+  PowerPoint. Not committed (binary); the source script is not kept in the repo.
+
 ### 2026-10-13 - end-to-end: endpoint + Postgres + image + deploy (branch `rnd`)
 - **App:** `GET /api/students` (controller -> service -> `JdbcClient` repository) reads the `students` table and
   adds the letter grade from `GradeService`. Deps: `spring-boot-starter-webmvc`, `-jdbc`, `postgresql` (runtime),

@@ -16,8 +16,12 @@ Every commit is gated locally (lint, unit tests, SonarQube quality gate), and Je
 ├── db/init.sql              schema + sample data (Postgres first start, and the tests)
 ├── Dockerfile               runtime image of the APPLICATION (the pipeline copies the built jar in)
 ├── startup/                 the learning environment: docker-compose.yml (Postgres + Jenkins) and jenkins/ (image, plugins, JCasC)
-├── scripts/deploy.sh        stop the running app, start the new image, wait healthy, roll back on failure
-├── scripts/smoke-test.sh    GET /api/students must return data
+├── scripts/                 the shell logic of the pipeline stages, runnable by hand:
+│   ├── prerequisites.sh     checks of the node (Java, docker, Sonar, database) before anything is built
+│   ├── sonar-gate.sh        create/assign our quality gate (rnd-strict) and the project
+│   ├── sonar-scan.sh        gate + Maven scan + wait for the verdict
+│   ├── deploy.sh            stop the running app, start the new image, wait healthy, roll back on failure
+│   └── smoke-test.sh        GET /api/students must return data
 ├── config/checkstyle.xml    lint rules (Checkstyle)
 ├── .githooks/pre-commit     blocks the commit when lint, tests or the Sonar gate fail
 ├── scan.sh                  lint + test + coverage + Sonar scan, one command (used by the hook)
@@ -169,13 +173,13 @@ passed the quality gate is ever started.
 | Parameter | Meaning |
 |---|---|
 | `REPO_URL`, `BRANCH` | what to build (`BRANCH` default `rnd`) |
-| `SONAR_PROJECT_KEY`, `SONAR_PROJECT_NAME` | project in SonarQube (the first scan creates it) |
+| `SONAR_PROJECT_KEY`, `SONAR_PROJECT_NAME` | project key and the name on the dashboard (name empty = the key; the project is created when missing) |
+| `SONAR_QUALITY_GATE` | gate assigned to the project before the scan (default `rnd-strict`; created with strict conditions if the server does not have it; empty = keep the server's assignment) |
 | `SCAN_BRANCHES` | branches that are scanned and deployed (default `main,master,rnd`). Community Build keeps one analysis per project, so scanning another branch overwrites the previous analysis |
 | `SONAR_TOKEN_INPUT` | optional: Sonar token typed per build (see secret sources below) |
 | `DEPLOY` | build the image and (re)start the app after a green scan (default on) |
 | `IMAGE_NAME`, `APP_PORT` | image and container name (`sonarcube`), host port on 127.0.0.1 (`8081`) |
-| `DB_URL`, `DB_USER`, `DOCKER_NETWORK` | how the app reaches the database (defaults match `startup/docker-compose.yml`) |
-| `DB_PASSWORD_INPUT` | optional: DB password typed per build |
+| `DB_URL`, `DOCKER_NETWORK` | how the app reaches the database (defaults match `startup/docker-compose.yml`). The login is read from that database container: nothing to type |
 | `GIT_CREDENTIALS_ID` | optional: Jenkins credential id for a private repo |
 
 **What the Jenkins node needs** (the image in `startup/jenkins/` already has all of it): Pipeline, Git and
@@ -183,22 +187,31 @@ Credentials Binding plugins; JDK 21 (set `JAVA_HOME` in the `environment` block 
 default `/usr/lib/jvm/java-21-openjdk`); `git`, `curl`; for the deploy `docker` usable by the Jenkins user; and the
 database already running (`devbox run startup` or `db-up`). Also the global env var `SONAR_URL`.
 
-Secrets (Sonar token, DB password) are read from the first of these that is set:
+The Sonar token is read from the first of these that is set:
 
-| Source | Sonar token | DB password | Needs admin? |
-|---|---|---|---|
-| Build parameter (password type, masked) | `SONAR_TOKEN_INPUT` | `DB_PASSWORD_INPUT` | no |
-| Global env var (Manage Jenkins > System > Global properties) | `SONAR_TOKEN` | `DB_PASSWORD` | yes, plain text |
-| Credential (Secret text) | `sonar-token` | `db-password` | yes, recommended |
+| Source | Name | Needs admin? |
+|---|---|---|
+| Build parameter (password type, masked) | `SONAR_TOKEN_INPUT` | no |
+| Global env var (Manage Jenkins > System > Global properties) | `SONAR_TOKEN` | yes, plain text |
+| Credential (Secret text) | `sonar-token` | yes, recommended |
+
+The database login needs no setting: `scripts/deploy.sh` reads `POSTGRES_USER` / `POSTGRES_PASSWORD` from the
+running database container. Only for a database that is not a local container, set the global env `DB_PASSWORD`
+(and `DB_USER`), or a credential `db-password`.
+
+**Which quality gate is used?** The one assigned to the project on the SonarQube server. A project that the first
+scan creates silently gets the server default (*Sonar way*). The pipeline therefore assigns `SONAR_QUALITY_GATE`
+before scanning (`scripts/sonar-gate.sh`); the log prints `quality gate used for project '...': rnd-strict`. The
+token needs permission to create projects and assign gates (to create the gate: *Administer Quality Gates*).
 
 **Prerequisites** runs right after checkout. It prints every parameter this build uses (secret values are
 masked), then checks: `bash`/`git`/`curl`, Java and `javac` against `<java.version>` in `pom.xml`, `mvnw`,
 Maven Central, and when the branch is scanned that SonarQube is UP and the token valid, and when it will
-deploy that docker works, the network exists, the database container runs and a DB password is available.
+deploy that docker works, the network exists and the database container runs.
 Problems are `[FAIL]` lines and stop the build before anything is built.
 
 **Deploy** (`scripts/deploy.sh`): if the app container runs it is stopped, the new image is started with the DB
-settings as environment variables, and the script waits for the container healthcheck. If the new version does not
+settings (read from the database container) as environment variables, and the script waits for the container healthcheck. If the new version does not
 become healthy the previous one is started again with its own settings, and the build still fails. Images are
 tagged with the build number and `latest` and stay in the node's local docker (no registry, no push).
 
@@ -206,7 +219,7 @@ When a build fails, the end of the console log shows the failed stage, the reaso
 including the red quality gate conditions for the Sonar stage. There is no mail or chat notification.
 
 `startup/jenkins/` is the Jenkins image (JCasC in `casc.yaml`): user `admin`, credentials `sonar-token` (from your
-`.env`) and `db-password`, the global env `SONAR_URL`, the job `sonar-pipeline` (Jenkinsfile of branch `rnd`),
+`.env`), the global env `SONAR_URL`, the job `sonar-pipeline` (Jenkinsfile of branch `rnd`),
 and the docker CLI. There is no SonarQube webhook: the scan waits for the gate by polling.
 
 ## Troubleshooting
@@ -215,12 +228,13 @@ and the docker CLI. There is no SonarQube webhook: the scan waits for the gate b
 |---|---|
 | `SONAR_TOKEN is not set` | create `.env` from `.env.example` |
 | `SONAR_URL is not set` / `SONAR_PROJECT_KEY is not set` | same: fill them in `.env` |
+| `[ERROR] SonarQube answered HTTP 403 ... api/qualitygates/select` or `projects/create` | the token may scan but not create projects / assign gates. Use a token with those permissions, or empty `SONAR_QUALITY_GATE` and assign the gate by hand |
 | `Insufficient privileges` / 403 on scan | your token's account needs *Execute Analysis* (and *Create Projects* for a new key) |
 | `QUALITY GATE STATUS: FAILED` | open the printed dashboard URL, fix the listed issues |
 | Checkstyle violations | the console lists file and line; rules are in `config/checkstyle.xml` |
 | Hook does not run | `git config core.hooksPath` should print `.githooks`; run `devbox shell` or set it manually |
 | `bad interpreter` / `\r` errors on Windows | the repo forces LF for `*.sh` and hooks; re-clone or `git rm --cached -r . && git reset --hard` |
-| App fails at start with `Could not resolve placeholder 'DB_PASSWORD'` | `DB_PASSWORD` is not set; the container gets it from the pipeline (credential `db-password`), `devbox run run` sets it itself |
+| App fails at start with `Could not resolve placeholder 'DB_PASSWORD'` | the container got no password: `scripts/deploy.sh` could not read it from the database container. `devbox run run` sets it itself |
 | `password authentication failed for user "sonarcube"` | the password differs from the one the database volume was created with (`sonarcube-learn`); `devbox run startup-down` then `docker volume rm sonarcube-startup_sonarcube-pgdata` to recreate |
 | Deploy: `docker network 'sonarcube-net' does not exist` | the database was never started: `devbox run startup` |
 | Deploy: `this user cannot use it` (own Jenkins, not `startup/`) | add the `jenkins` user to the `docker` group and restart Jenkins |
