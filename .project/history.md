@@ -67,6 +67,14 @@ in a git-ignored `.env` (template: `.env.example`).
   `sonar.projectName` was only sent when `SONAR_PROJECT_NAME` was filled; otherwise the Maven plugin uses `<name>`
   of `pom.xml`. The parameter text claimed "empty = the key", which was wrong. Now the name defaults to the key in
   the pipeline and in `scan.sh`.
+- **Verified end to end in the `startup` Jenkins against the real SonarQube (2026-10-14):** job `sonar-pipeline`,
+  branch `rnd`, temporary project key (deleted afterwards). Prerequisites read the database login from the
+  container; `sonar-gate.sh` created the project (name = key) and assigned `rnd-strict`; the gate evaluated 8
+  conditions and passed (coverage 100%, 0 bugs / vulnerabilities / smells); image built, old container replaced,
+  smoke test green. The pre-commit gate for this change also ran for real (no `--no-verify`).
+- Note for anyone re-creating the Jenkins container: JCasC re-seeds the job and drops its registered parameters,
+  so the first `buildWithParameters` returns HTTP 400. Run the job once without parameters (or open "Build Now")
+  to register them again.
 - Verified: in a probe job `env.STAGE_NAME` in the final `post` block is "Declarative: Post Actions", so each stage
   keeps `post { failure { markFailed() } }`.
 
